@@ -1,5 +1,7 @@
 # 🧠 Diabetes Research Assistant
 
+![Architecture Diagram](search4cure-architecture.drawio.png)
+
 https://search4cure-diabetes-941266239729.us-central1.run.app/ 
 
 
