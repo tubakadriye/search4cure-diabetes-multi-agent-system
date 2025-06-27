@@ -2,6 +2,21 @@
 
 https://search4cure-diabetes-941266239729.us-central1.run.app/ 
 
+
+**Deployment:**
+Inside the docker/backend directory execute:
+```
+gcloud run deploy search4cure-diabetes \
+  --source . \
+  --project="$GOOGLE_CLOUD_PROJECT" \
+  --region="$GOOGLE_CLOUD_LOCATION" \
+  --memory=4Gi \
+  --platform=managed \
+  --allow-unauthenticated \
+  --env-vars-file env.yaml
+```
+
+
 **Diabetes Research Assistant** is a Streamlit-based application that leverages LLM agents to help researchers, students, and practitioners discover and explore scientific publications focused on the use of machine learning methods in diabetes prediction, treatment, and care management.
 
 This tool provides:

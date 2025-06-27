@@ -4,6 +4,7 @@ from google.adk import configure_dev_ui
 from agent import root_agent
 from agent_runner import call_agent
 
+
 # Optionally enable serving the ADK UI via Streamlit
 serve_developer_ui = True
 
@@ -36,6 +37,9 @@ import datetime
 
 from utils.general_helpers import print_dataframe_info
 
+DB_NAME = "diabetes_data"
+response_collection = mongodb_client[DB_NAME]["responses"]
+
 # --- Setup ---
 st.set_page_config(page_title="Search4Cure.AI: Diabetes", layout="wide")
 st.title("🔬 Search4Cure.AI: Diabetes")
@@ -50,6 +54,10 @@ pdf_collection = db["docs_multimodal"]
 # --- Session States ---
 for key in ["user_pdfs", "embedded_docs", "search_results"]:
     st.session_state.setdefault(key, [])
+
+# --- Human-in-the-Loop HITL Session Keys ---
+for key in ["agent_raw_response", "agent_approved_text", "agent_review_mode"]:
+    st.session_state.setdefault(key, "" if "response" in key else False)
 
 # --- Sidebar Upload ---
 with st.sidebar:
@@ -161,10 +169,59 @@ if search_button:
     if not query.strip():
         st.warning("Please enter a query.")
     else:
-        with st.spinner("Calling AI agent..."):
+        with st.spinner("Using Diabetes Research Asisstant Agent to answer..."):
             agent_output = call_agent(query)
             st.success("Agent response received!")
             st.markdown(agent_output)
+        st.session_state.agent_raw_response = agent_output
+        st.session_state.agent_review_mode = True  # activate HITL mode
+
+# --- Human-in-the-Loop Review Interface ---
+if st.session_state.agent_review_mode:
+    st.markdown("### 🤖 Suggested Answer by Agent")
+             
+    st.session_state.agent_approved_text = st.text_area(
+        "Edit or approve the agent's response:",
+        value=st.session_state.agent_raw_response,
+        height=200,
+        key="editable_response"
+    )
+    col1, col2 = st.columns(2)
+
+    with col1:
+        if st.button("✅ Approve"):
+            st.session_state.agent_review_mode = False
+            st.success("✅ Approved Response:")
+            st.markdown(f"**{st.session_state.agent_approved_text}**")
+            # Here you can save the approved response to a database/log
+            response_collection.insert_one({"query": query, "response": st.session_state.agent_approved_text})
+
+
+    with col2:
+        if st.button("🔄 Regenerate Agent Response"):
+            with st.spinner("Regenerating answer..."):
+                new_agent_response = call_agent(query)
+                new_response_text = new_agent_response.get("output", str(new_agent_response))
+                st.session_state.agent_approved_text = new_response_text
+                st.experimental_rerun()
+
+
+    # Expert input section
+    st.markdown("### 📝 Expert Input")
+    expert_input = st.text_area(
+        "Expert can edit or write their own answer below:",
+        value=st.session_state.agent_approved_text,
+        height=200,     
+        key="expert_response"
+        )
+
+    if st.button("✅ Submit Expert Answer"):
+        st.session_state.agent_approved_text = expert_input
+        st.session_state.agent_review_mode = False
+        st.success("✅ Expert-approved Response:")
+        st.markdown(f"**{st.session_state.agent_approved_text}**")
+        response_collection.insert_one({"query": query, "expert_input": st.session_state.agent_approved_text})
+
 
 
 
