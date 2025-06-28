@@ -29,8 +29,7 @@ DB_NAME = os.getenv("MONGO_DB")
 ATLAS_VECTOR_SEARCH_INDEX = "csv_vector_index"
 CSV_COLLECTION= "records_embeddings"
 GEMINI_EMBEDDING_MODEL = "models/embedding-001"#"models/gemini-embedding-exp-03-07"
-MODEL_GEMINI_2_0_FLASH = "gemini-2.0-flash"
-AGENT_MODEL = MODEL_GEMINI_2_0_FLASH 
+AGENT_MODEL = "gemini-2.0-flash"
 
 
 embedding_model = GoogleGenerativeAIEmbeddings(
@@ -65,7 +64,7 @@ def csv_files_vector_search_tool(query: str, k: int = 5):
     vector_search_results = vector_store_csv_files.similarity_search_with_score(
         query=query, k=k
     )
-    return vector_search_results
+    return {"matches": vector_search_results}
 
 
 
@@ -73,7 +72,7 @@ def csv_files_vector_search_tool(query: str, k: int = 5):
 csv_files_vector_search_agent = Agent(
     name="csv_files_vector_search_agent",
     model=AGENT_MODEL,
-    description="Performs a vector similarity search on safety procedures from CSV files.",
+    description="Searches CSV dataset via vector similarity",
     instruction="You are an agent that performs a semantic similarity search on patient data about diabetes"
                 "stored in CSV files using the 'csv_files_vector_search_tool'. "
                 "Return the most relevant entries from the database based on the user's query.",
@@ -207,15 +206,15 @@ print(f"Agent '{csv_files_vector_search_agent.name}' created using model '{AGENT
 hybrid_search_agent = Agent(
     name="hybrid_search_agent",
     model=AGENT_MODEL,
-    description="Performs a hybrid (vector + full-text) search on CSV safety records.",
-    instruction="You are an agent that retrieves the most relevant CSV records related to safety using both full-text and vector similarity search. Use the 'hybrid_search_tool'.",
+    description="Performs a hybrid (vector + text) search on CSV patient records.",
+    instruction="You are an agent that retrieves the most relevant CSV records related to Diabetes using both text and vector similarity search. Use the 'hybrid_search_tool'.",
     tools=[hybrid_search_tool],
 )
 
 create_record_agent = Agent(
     name="create_record_agent",
     model=AGENT_MODEL,
-    description="Creates and validates new records for a CSV dataset.",
-    instruction="You are a data creation agent. When a user submits a new CSV row with a dataset ID, validate and format it using the 'create_new_record' tool.",
+    description="Validates & creates new CSV records.",
+    instruction="You are a data creation agent. When a user submits a new CSV row, validate and format it using the 'create_new_record' tool.",
     tools=[create_new_record],
 )

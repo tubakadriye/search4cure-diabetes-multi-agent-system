@@ -16,16 +16,19 @@ from google.adk.agents import Agent
 DB_NAME = "diabetes_data"
 COLLECTION_NAME = "docs_multimodal"
 VS_INDEX_NAME = "multimodal_vector_index"
+MODEL = genai.GenerativeModel("gemini-2.0-flash")
+AGENT_MODEL = "gemini-2.0-flash"
+GCS_PROJECT = os.getenv("GCS_PROJECT")
+GCS_BUCKET = os.getenv("GCS_BUCKET")
+
 # Connect to the MongoDB collection
 collection = mongodb_client[DB_NAME][COLLECTION_NAME]
 db = mongodb_client[DB_NAME]
-GCS_PROJECT = os.getenv("GCS_PROJECT")
-GCS_BUCKET = os.getenv("GCS_BUCKET")
+
 # Instantiate the GCS client and bucket
 gcs_client = storage.Client(project=GCS_PROJECT)
 gcs_bucket = gcs_client.bucket(GCS_BUCKET)
-MODEL_GEMINI_2_0_FLASH = "gemini-2.0-flash"
-AGENT_MODEL = MODEL_GEMINI_2_0_FLASH 
+
 
 def article_page_vector_search_tool(
     query: str,
@@ -184,8 +187,8 @@ def vector_search_image_tool(
     return "\n\n".join(output)
 
 
-article_page_search_agent = Agent(
-    name="article_page_search_agent",
+article_page_vector_search_agent = Agent(
+    name="article_page_vector_search_agent",
     model=AGENT_MODEL,
     description="Search academic papers (page-level) using a text query via multimodal embeddings.Returns the top 5 page-level summaries with citations.",
     instruction="You are an academic search agent. Use the 'article_page_vector_search_tool' to find relevant page-level results from academic papers. ",

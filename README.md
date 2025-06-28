@@ -4,6 +4,8 @@
 
 https://search4cure-diabetes-941266239729.us-central1.run.app/ 
 
+![sample image](image.png)
+
 
 **Deployment:**
 Inside the docker/backend directory execute:
