@@ -134,22 +134,7 @@ with st.sidebar:
                         data_col=db["records_embeddings"],
                         embedding_fn=get_gemini_embedding
                     )
-
-                # Create vector index for image
-                create_vector_index(
-                    db=db,
-                    collection_name="docs_multimodal",
-                    index_name="image_vector_index",
-                    field_name="clip_embedding",
-                    num_dimensions=512
-                )
-
-                # Create vector index for pdfs
-                create_multivector_index(
-                    db=db,
-                    collection_name="docs_multimodal",
-                    index_name="multimodal_vector_index"
-                    )   
+ 
 
 
                 st.success(f"✅ Processed, uploaded, and embedded {len(embedded_docs)} items.")
