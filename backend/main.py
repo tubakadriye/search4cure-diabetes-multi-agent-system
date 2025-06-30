@@ -1,23 +1,43 @@
 #streamlit run main.py
 import os
-from agent.agent_runner import call_agent
+#from google.adk import configure_dev_ui
+#from agent import root_agent
+from agent.agent_runner import call_agent, call_agent_sync
+
+# Optionally enable serving the ADK UI via Streamlit
+#serve_developer_ui = True
+
+# if serve_developer_ui:
+#     configure_dev_ui(agent=root_agent)
 import socket
+
+from sub_agents.article_agents import vector_search_image_tool
 ON_CLOUD = 'google' in socket.gethostname()
+import base64
+
+#from tqdm import tqdm
+#from db.mongo_utils import insert_df_to_mongodb
 from embeddings.gemini_text_embedding import get_gemini_embedding
 import streamlit as st
 from loaders.user_pdf_loader import load_user_pdfs_from_folder, load_user_pdf_from_url
 from loaders.arxiv_loader import ArxivPDFLoader
 from loaders.pubmed_loader import PubMedPDFLoader
+#from multimodal.pdf_processing import process_pdfs_and_upload_images
 from PIL import Image
 import io
+#from embeddings.image_embedding_pipeline import embed_docs_with_clip
+#from utils.attribute_combiner import combine_all_attributes
 from utils.csv_processing import process_and_upload_csv
 #from utils.gcs_utils import upload_image_to_gcs
 from embeddings.clip import get_clip_embedding
 from db.mongodb_client import mongodb_client
+from db.index_utils import create_vector_index, create_multivector_index
 from multimodal.pdf_processing import process_and_embed_docs
 #import pandas as pd
 #import datetime
 import asyncio
+
+#from utils.general_helpers import print_dataframe_info
 
 DB_NAME = "diabetes_data"
 response_collection = mongodb_client[DB_NAME]["responses"]
@@ -129,16 +149,48 @@ with st.sidebar:
 st.markdown("<h2 style='text-align:center'>🔍 Search Query</h2>", unsafe_allow_html=True)
 query = st.text_input("", placeholder="Enter your search query here...", key="search_query", max_chars=200)
 
+# Add image upload
+uploaded_query_image = st.file_uploader(
+    "Or upload an image to query about:", type=["png", "jpg", "jpeg"], key="query_image"
+)
+# Show the uploaded image (if provided)
+if uploaded_query_image:
+    st.image(uploaded_query_image, caption="🔍 Uploaded Query Image", use_container_width=True)   
 search_button = st.button("Search")
 
 if search_button:
-    if not query.strip():
-        st.warning("Please enter a query.")
+    if not query.strip() and not uploaded_query_image:
+        st.warning("Please enter a query or upload an image.")
     else:
         with st.spinner("Using Diabetes Research Asisstant Agent to answer..."):
-            agent_output = asyncio.run(call_agent(query))
-            st.success("Agent response received!")
-            st.markdown(agent_output)
+            # Step 1: Convert uploaded image to base64
+            image_base64 = None
+            if uploaded_query_image:
+                image_bytes = uploaded_query_image.read()
+                image_base64 = base64.b64encode(image_bytes).decode("utf-8")
+
+                #Run the multimodal vector search tool
+                try:
+                    image_search_result = vector_search_image_tool(
+                        image_base64=image_base64
+                    )
+                    st.markdown("### 🖼️ Image Search Results")
+                    st.markdown(image_search_result)
+                except Exception as e:
+                    st.error(f"Error during image-based search: {e}")
+            
+            # Step 3: If there’s a text query, invoke the text agent
+            if query.strip():
+                try:
+                    agent_output = call_agent_sync(query)
+                    st.success("Agent response received!")
+                    st.write(f"DEBUG agent output: {agent_output}")
+                    st.markdown(agent_output)
+                    
+                except Exception as e:
+                    st.error(f"Error during text-based search: {e}")
+            #agent_output = asyncio.run(call_agent(query))
+            #agent_output = asyncio.run(call_agent(query)) if not asyncio.get_event_loop().is_running() else await call_agent(query)    
         st.session_state.agent_raw_response = agent_output
         st.session_state.agent_review_mode = True  # activate HITL mode
 
