@@ -2,7 +2,7 @@
 from google.adk.sessions import InMemorySessionService
 from google.adk.runners import Runner
 from google.genai import types
-from agent import root_agent
+from backend.agent.agent import root_agent
 
 APP_NAME = "search4cure_ai"
 USER_ID = "user1"

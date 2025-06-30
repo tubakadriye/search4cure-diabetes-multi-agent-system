@@ -1,28 +1,26 @@
 #streamlit run main.py
-
-from tqdm import tqdm
-from db.mongo_utils import insert_df_to_mongodb
+import os
+from agent.agent_runner import call_agent
+import socket
+ON_CLOUD = 'google' in socket.gethostname()
 from embeddings.gemini_text_embedding import get_gemini_embedding
 import streamlit as st
 from loaders.user_pdf_loader import load_user_pdfs_from_folder, load_user_pdf_from_url
 from loaders.arxiv_loader import ArxivPDFLoader
 from loaders.pubmed_loader import PubMedPDFLoader
-from multimodal.pdf_processing import process_pdfs_and_upload_images
-import os
 from PIL import Image
 import io
-from embeddings.image_embedding_pipeline import embed_docs_with_clip
-from utils.attribute_combiner import combine_all_attributes
 from utils.csv_processing import process_and_upload_csv
-from utils.gcs_utils import upload_image_to_gcs
+#from utils.gcs_utils import upload_image_to_gcs
 from embeddings.clip import get_clip_embedding
 from db.mongodb_client import mongodb_client
-from db.index_utils import create_vector_index, create_multivector_index
 from multimodal.pdf_processing import process_and_embed_docs
-import pandas as pd
-import datetime
+#import pandas as pd
+#import datetime
+import asyncio
 
-from utils.general_helpers import print_dataframe_info
+DB_NAME = "diabetes_data"
+response_collection = mongodb_client[DB_NAME]["responses"]
 
 # --- Setup ---
 st.set_page_config(page_title="Search4Cure.AI: Diabetes", layout="wide")
@@ -38,6 +36,10 @@ pdf_collection = db["docs_multimodal"]
 # --- Session States ---
 for key in ["user_pdfs", "embedded_docs", "search_results"]:
     st.session_state.setdefault(key, [])
+
+# --- Human-in-the-Loop HITL Session Keys ---
+for key in ["agent_raw_response", "agent_approved_text", "agent_review_mode"]:
+    st.session_state.setdefault(key, "" if "response" in key else False)
 
 # --- Sidebar Upload ---
 with st.sidebar:
@@ -115,22 +117,6 @@ with st.sidebar:
                         embedding_fn=get_gemini_embedding
                     )
 
-                # Create vector index for image
-                create_vector_index(
-                    db=db,
-                    collection_name="docs_multimodal",
-                    index_name="image_vector_index",
-                    field_name="clip_embedding",
-                    num_dimensions=512
-                )
-
-                # Create vector index for pdfs
-                create_multivector_index(
-                    db=db,
-                    collection_name="docs_multimodal",
-                    index_name="multimodal_vector_index"
-                    )   
-
 
                 st.success(f"✅ Processed, uploaded, and embedded {len(embedded_docs)} items.")
                 # Example: show first 3 embedded docs metadata or images
@@ -149,78 +135,60 @@ if search_button:
     if not query.strip():
         st.warning("Please enter a query.")
     else:
-        with st.spinner("Searching..."):
-            query_embedding = get_gemini_embedding([query])[0]
+        with st.spinner("Using Diabetes Research Asisstant Agent to answer..."):
+            agent_output = asyncio.run(call_agent(query))
+            st.success("Agent response received!")
+            st.markdown(agent_output)
+        st.session_state.agent_raw_response = agent_output
+        st.session_state.agent_review_mode = True  # activate HITL mode
 
-            # Define the vector search pipeline
-            vector_search_stage = {
-                "$vectorSearch": {
-                    "index": "vector_index_with_filter",
-                    "compound": {
-                            "should": [
-                                {
-                                    "knnBeta": {
-                                        "vector": query_embedding,
-                                        "path": "clip_image_embedding",
-                                        "k": 5
-                                    }
-                                },
-                                {
-                                    "knnBeta": {
-                                        "vector": query_embedding,
-                                        "path": "clip_text_embedding",
-                                        "k": 5
-                                    }
-                                },
-                                {
-                                    "knnBeta": {
-                                        "vector": query_embedding,
-                                        "path": "sbert_text_embedding",
-                                        "k": 5
-                                    }
-                                }
-                            ]
-                        },
-                    "queryVector": query_embedding,
-                    "path": "embedding",
-                    "numCandidates": 150,  # Number of candidate matches to consider
-                    "limit": 5,  # Return top 4 matches
-                }
-            }
+# --- Human-in-the-Loop Review Interface ---
+if st.session_state.agent_review_mode:
+    st.markdown("### 🤖 Suggested Answer by Agent")
+             
+    st.session_state.agent_approved_text = st.text_area(
+        "Edit or approve the agent's response:",
+        value=st.session_state.agent_raw_response,
+        height=200,
+        key="editable_response"
+    )
+    col1, col2 = st.columns(2)
 
-            unset_stage = {
-                "$unset": "embedding"  # Exclude the 'embedding' field from the results
-            }
+    with col1:
+        if st.button("✅ Approve"):
+            st.session_state.agent_review_mode = False
+            st.success("✅ Approved Response:")
+            st.markdown(f"**{st.session_state.agent_approved_text}**")
+            # Here you can save the approved response to a database/log
+            response_collection.insert_one({"query": query, "response": st.session_state.agent_approved_text})
 
-            project_stage = {
-                "$project": {
-                    "_id": 0,  # Exclude the _id field,
-                    "combined_info": 1,
-                    "score": {
-                        "$meta": "vectorSearchScore"  # Include the search score
-                    },
-                }
-            }
 
-            pipeline = [vector_search_stage, unset_stage, project_stage]
+    with col2:
+        if st.button("🔄 Regenerate Agent Response"):
+            with st.spinner("Regenerating answer..."):
+                new_agent_response = call_agent(query)
+                new_response_text = new_agent_response.get("output", str(new_agent_response))
+                st.session_state.agent_approved_text = new_response_text
+                st.experimental_rerun()
 
-            # Execute the search
-            results = pdf_collection.aggregate(pipeline)
 
-            st.session_state.search_results = list(results)
+    # Expert input section
+    st.markdown("### 📝 Expert Input")
+    expert_input = st.text_area(
+        "Expert can edit or write their own answer below:",
+        value=st.session_state.agent_approved_text,
+        height=200,     
+        key="expert_response"
+        )
 
-if st.session_state.search_results:
-    st.markdown("---")
-    st.markdown(f"### Results ({len(st.session_state.search_results)}):")
-    for doc in st.session_state.search_results:
-        title = doc.get("pdf_title", "Untitled")
-        url = doc.get("url", "")
-        st.write(f"**Title:** {title}")
-        if "image" in doc:
-            st.image(doc["image"], width=150)
-        if url:
-            st.write(f"Source URL: {url}")
-        st.write("---")
+    if st.button("✅ Submit Expert Answer"):
+        st.session_state.agent_approved_text = expert_input
+        st.session_state.agent_review_mode = False
+        st.success("✅ Expert-approved Response:")
+        st.markdown(f"**{st.session_state.agent_approved_text}**")
+        response_collection.insert_one({"query": query, "expert_input": st.session_state.agent_approved_text})
+
+
 
 
 

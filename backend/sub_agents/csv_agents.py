@@ -75,7 +75,8 @@ csv_files_vector_search_agent = Agent(
     description="Searches CSV dataset via vector similarity",
     instruction="You are an agent that performs a semantic similarity search on patient data about diabetes"
                 "stored in CSV files using the 'csv_files_vector_search_tool'. "
-                "Return the most relevant entries from the database based on the user's query.",
+                "Return the most relevant entries from the database based on the user's query." \
+                "Use records_embeddings collection",
     tools=[csv_files_vector_search_tool],
 )
 

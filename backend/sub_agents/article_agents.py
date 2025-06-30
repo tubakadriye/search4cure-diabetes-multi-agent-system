@@ -57,15 +57,46 @@ def article_page_vector_search_tool(
     for r in results[:5]:
         title = r.get("pdf_title", "Unknown Title")
         page = r.get("page_number", "?")
-        text = r.get("summary") or r.get("page_text", "")[:300]
-        summaries.append(f"[{title}, Page {page}]: {text.strip()}")
+        text_summary = r.get("summary") or r.get("page_text", "")[:300]
+        gcs_key = r.get("gcs_key", "")
+        doc_id = r.get("_id")
+
+        # Get Gemini citations/mentions from image
+        try:
+            cached = collection_ref.find_one({"_id": doc_id}, {"gemini_summary": 1})
+            if cached and "gemini_summary" in cached:
+                gemini = cached["gemini_summary"]
+            else:
+                page_bytes = get_image_from_gcs(gcs_bucket, gcs_key)
+                page_image = Image.open(BytesIO(page_bytes))
+                gemini = extract_info_from_page_image(page_image, title, page)
+                collection_ref.update_one({"_id": doc_id}, {"$set": {"gemini_summary": gemini}})
+        except Exception as e:
+            gemini = f"Gemini image error: {e}"
+
+        # Parse citations/figures only
+        citations = extract_markdown_section(gemini, "Citations")
+        figures = extract_markdown_section(gemini, "Figures/Tables")
+
+        full_summary = f"### {title}, Page {page}\n**Summary**: {text_summary.strip()}\n\n**Citations**: {citations}\n\n**Figures/Tables**: {figures}"
+
+        summaries.append(full_summary)
 
     return "\n\n".join(summaries)  # return top 5 summaries
 
+import re
+
+def extract_markdown_section(text: str, section_title: str) -> str:
+    """
+    Extracts a section from a markdown-formatted Gemini response by header name (e.g., "Citations").
+    """
+    pattern = rf"\*\*{re.escape(section_title)}:\*\*(.*?)(?=\n\*\*|\Z)"
+    match = re.search(pattern, text, re.DOTALL)
+    if match:
+        return match.group(1).strip()
+    return "Not found"
 
 
-
-model = genai.GenerativeModel("gemini-2.0-flash") #gemini-pro-vision
 
 def extract_info_from_page_image(image: Image.Image, pdf_title: str, page_number: int) -> str:
     """
@@ -88,7 +119,7 @@ def extract_info_from_page_image(image: Image.Image, pdf_title: str, page_number
     """
 
     try:
-        response = model.generate_content([prompt, image])
+        response = MODEL.generate_content([prompt, image])
         return response.text
     except Exception as e:
         return f"Gemini processing error: {e}"
@@ -116,7 +147,6 @@ def get_image_from_gcs(gcs_bucket, key: str) -> bytes:
 
 
 def vector_search_image_tool(
-    collection_name: str,
     image_bytes: Optional[bytes] = None,
     text_query: Optional[str] = None,  
     ) -> str:
@@ -135,7 +165,7 @@ def vector_search_image_tool(
         
     """
 
-    collection_ref = db[collection_name]
+    collection_ref = db[COLLECTION_NAME]
 
     # Determine search mode
     if image_bytes:
@@ -154,52 +184,50 @@ def vector_search_image_tool(
     if not results:
         return "No matching results found."
         
-    output = []
+    summaries = []
     for r in results[:5]:
-        pdf_title = r.get("pdf_title", "Unknown Title")
-        page_number = r.get("page_number", -1)
-        gcs_key = r.get("gcs_key", "")
-        doc_id = r.get("_id")  # Ensure this is present in your search result
-
-        # Check for existing gemini_summary in DB
-        cached_doc = collection_ref.find_one({"_id": doc_id}, {"gemini_summary": 1})
-        if cached_doc and cached_doc.get("gemini_summary"):
-            summary = cached_doc["gemini_summary"]
-        else:
-            # If not cached, fetch image + generate Gemini summary
-            try:
-                page_bytes = get_image_from_gcs(gcs_bucket, gcs_key)
-                page_image = Image.open(BytesIO(page_bytes))
-            except Exception as e:
-                return f"Failed to fetch page image: {e}"
-            else:
-                summary = extract_info_from_page_image(page_image, pdf_title, page_number)
-
-                # Save summary to DB
-                collection_ref.update_one(
-                    {"_id": doc_id},
-                    {"$set": {"gemini_summary": summary}},
-                )
-
-        citation = f"### {pdf_title}, Page {page_number}"
-        output.append(f"{citation}\n{summary.strip()}")
+        summary = gemini_page_image_summary(r, collection_ref)
+    summaries.append(summary)
         
-    return "\n\n".join(output)
+    return "\n\n".join(summaries)
 
 
 article_page_vector_search_agent = Agent(
     name="article_page_vector_search_agent",
     model=AGENT_MODEL,
-    description="Search academic papers (page-level) using a text query via multimodal embeddings.Returns the top 5 page-level summaries with citations.",
-    instruction="You are an academic search agent. Use the 'article_page_vector_search_tool' to find relevant page-level results from academic papers. ",
+    description="Search academic papers (page-level) using a text query via multimodal embeddings.Returns the top 5 page-level summaries",
+    instruction="You are an academic search agent doing text based research with sbert embeddings. Use the 'article_page_vector_search_tool' to find relevant page-level results from academic papers. Use sbert embedding.Do not use other embedding. Use collection docs_multimodal.",
     tools=[article_page_vector_search_tool],
 )
 
 vector_search_image_agent = Agent(
-    name="vector_search_image_agent",
+    name="vector_image_search_agent",
     model=AGENT_MODEL,
-    description="Search academic papers using either an image or text query. If text is provided, it generates a CLIP embedding from the query and searches against page images. If image is provided, it searches using image embeddings.",
-    instruction="You are a multimodal search agent. If the user provides an image or a descriptive text, use 'vector_search_image_tool' to return the top 5 academic page results with citations and summaries.",
+    description="Search PDFs via text or image query and summarize page images",
+    instruction="You are a multimodal search agent. If the user provides an image or a descriptive text, use 'vector_search_image_tool' to return the top 5 academic page results with citations and summaries.Use clip_image as embedding if image is provided. Use clip embedding if the query is text. Do not use other embeddings. Use docs_multimodal collection.",
     tools=[vector_search_image_tool],
 )
+
+def gemini_page_image_summary(doc, collection_ref):
+    doc_id = doc.get("_id")
+    pdf_title = doc.get("pdf_title", "Unknown Title")
+    page_number = doc.get("page_number", "?")
+    gcs_key = doc.get("gcs_key", "")
+
+    cached_doc = collection_ref.find_one({"_id": doc_id}, {"gemini_summary": 1})
+    if cached_doc and cached_doc.get("gemini_summary"):
+        summary = cached_doc["gemini_summary"]
+    else:
+        try:
+            page_bytes = get_image_from_gcs(gcs_bucket, gcs_key)
+            page_image = Image.open(BytesIO(page_bytes))
+            summary = extract_info_from_page_image(page_image, pdf_title, page_number)
+            collection_ref.update_one({"_id": doc_id}, {"$set": {"gemini_summary": summary}})
+        except Exception as e:
+            summary = f"Failed to fetch or process page image: {e}"
+
+    citation = f"### {pdf_title}, Page {page_number}"
+    return f"{citation}\n{summary.strip()}"
+
+
 
