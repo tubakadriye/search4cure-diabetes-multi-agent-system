@@ -8,6 +8,8 @@ https://search4cure-diabetes-941266239729.us-central1.run.app/
 
 ![image2](image-1.png))
 
+![sample image 3](image-2.png)
+
 
 
 **Diabetes Research Assistant** is a Streamlit-based application that leverages LLM agents to help researchers, students, and practitioners discover and explore scientific publications focused on the use of machine learning methods in diabetes prediction, treatment, and care management.
