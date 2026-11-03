@@ -30,7 +30,7 @@ On November 3, 2026, a real query for `all:diabetes` returned
 The initial request failed certificate verification because the local Python
 installation lacked its default CA bundle. A subsequent request using the
 existing system CA bundle succeeded with HTTPS verification enabled. Setup
-instructions are in the [README](../aws_version/README.md#run).
+instructions are in the [README](../README.md#run).
 
 This source check confirms metadata retrieval for one publication, not search
 relevance or historical public availability.
@@ -84,3 +84,10 @@ The download command now reports search, request attempts, downloaded bytes,
 and saved file paths on stderr while running. Its final stdout output remains
 JSON. After this change, all 13 metadata and download tests passed. A real run
 emitted progress messages and completed successfully for `2611.03601v1`.
+
+## Project-root entry points
+
+After moving the modules to the project root, all 13 offline tests passed.
+Both `python3 -m arxiv_search --help` and `python3 -m download_pdf --help`
+completed successfully. No additional live API request was needed for this
+layout change.

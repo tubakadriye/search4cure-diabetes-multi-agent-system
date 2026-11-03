@@ -10,7 +10,7 @@ import unittest
 from unittest.mock import patch
 from urllib.error import HTTPError, URLError
 
-from aws_version.download_pdf import download_pdf
+from download_pdf import download_pdf
 
 SYNTHETIC_PDF = b"%PDF-1.7\nSynthetic download fixture, not a parseable research paper.\n%%EOF\n"
 SEARCH_RESULT = {
@@ -40,7 +40,7 @@ class DownloadTests(unittest.TestCase):
     def files(self, pattern):
         return [path for path in Path(self.directory.name).rglob(pattern) if path.is_file()]
 
-    @patch("aws_version.download_pdf.urlopen")
+    @patch("download_pdf.urlopen")
     def test_saved_bytes_match_hash_and_preserve_provenance(self, opener):
         opener.return_value = response()
         result = download_pdf(SEARCH_RESULT, self.directory.name)
@@ -54,7 +54,7 @@ class DownloadTests(unittest.TestCase):
         self.assertEqual(opener.call_args.kwargs["timeout"], 30)
         self.assertEqual(self.files("*.part"), [])
 
-    @patch("aws_version.download_pdf.urlopen")
+    @patch("download_pdf.urlopen")
     def test_missing_version_is_rejected_before_network_access(self, opener):
         metadata = deepcopy(SEARCH_RESULT)
         metadata["document"]["version"] = None
@@ -62,7 +62,7 @@ class DownloadTests(unittest.TestCase):
             download_pdf(metadata, self.directory.name)
         opener.assert_not_called()
 
-    @patch("aws_version.download_pdf.urlopen")
+    @patch("download_pdf.urlopen")
     def test_invalid_empty_and_oversized_responses_leave_no_completed_files(self, opener):
         for body, headers in [(b"<html>synthetic error</html>", {}), (b"", {}),
                               (SYNTHETIC_PDF, {"Content-Length": str(101 * 1024 * 1024)})]:
@@ -71,14 +71,14 @@ class DownloadTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     download_pdf(SEARCH_RESULT, self.directory.name)
                 self.assertEqual(self.files("*.*"), [])
-        with patch("aws_version.download_pdf.MAX_PDF_BYTES", 10):
+        with patch("download_pdf.MAX_PDF_BYTES", 10):
             opener.return_value = response(headers={})
             with self.assertRaisesRegex(ValueError, "limit"):
                 download_pdf(SEARCH_RESULT, self.directory.name)
             self.assertEqual(self.files("*.*"), [])
 
-    @patch("aws_version.download_pdf.time.sleep")
-    @patch("aws_version.download_pdf.urlopen")
+    @patch("download_pdf.time.sleep")
+    @patch("download_pdf.urlopen")
     def test_truncated_download_can_retry_without_partial_files(self, opener, sleep):
         opener.side_effect = [response(headers={"Content-Length": str(len(SYNTHETIC_PDF) + 10)}), response()]
         result = download_pdf(SEARCH_RESULT, self.directory.name)
@@ -88,8 +88,8 @@ class DownloadTests(unittest.TestCase):
         self.assertEqual(len(self.files("*.pdf")), 1)
         self.assertEqual(self.files("*.part"), [])
 
-    @patch("aws_version.download_pdf.time.sleep")
-    @patch("aws_version.download_pdf.urlopen", side_effect=URLError("Synthetic connection failure"))
+    @patch("download_pdf.time.sleep")
+    @patch("download_pdf.urlopen", side_effect=URLError("Synthetic connection failure"))
     def test_connection_retries_stop_after_three_attempts(self, opener, sleep):
         with self.assertRaises(URLError):
             download_pdf(SEARCH_RESULT, self.directory.name)
@@ -97,8 +97,8 @@ class DownloadTests(unittest.TestCase):
         self.assertEqual(sleep.call_count, 2)
         self.assertEqual(self.files("*.*"), [])
 
-    @patch("aws_version.download_pdf.time.sleep")
-    @patch("aws_version.download_pdf.urlopen")
+    @patch("download_pdf.time.sleep")
+    @patch("download_pdf.urlopen")
     def test_rate_limit_and_retry_after_stop_automatic_retries(self, opener, sleep):
         for code, headers in [(429, {}), (503, {"Retry-After": "60"})]:
             with self.subTest(code=code):
@@ -109,10 +109,10 @@ class DownloadTests(unittest.TestCase):
                 self.assertEqual(opener.call_count, 1)
         sleep.assert_not_called()
 
-    @patch("aws_version.download_pdf.urlopen")
+    @patch("download_pdf.urlopen")
     def test_metadata_storage_failure_keeps_pdf_and_allows_rerun(self, opener):
         opener.side_effect = [response(), response()]
-        with patch("aws_version.download_pdf.json.dump", side_effect=OSError("Synthetic storage failure")):
+        with patch("download_pdf.json.dump", side_effect=OSError("Synthetic storage failure")):
             with self.assertRaises(OSError):
                 download_pdf(SEARCH_RESULT, self.directory.name)
         self.assertEqual(len(self.files("*.pdf")), 1)

@@ -15,7 +15,7 @@ from urllib.request import Request, urlopen
 import uuid
 import xml.etree.ElementTree as ET
 
-from aws_version.arxiv_search import USER_AGENT, search_one
+from arxiv_search import USER_AGENT, search_one
 
 CHUNK_BYTES = 64 * 1024
 MAX_PDF_BYTES = 100 * 1024 * 1024

@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 from urllib.error import HTTPError, URLError
 from urllib.parse import parse_qs, urlparse
 
-from aws_version.arxiv_search import parse_document, search_one
+from arxiv_search import parse_document, search_one
 
 SYNTHETIC_FEED = b'''<feed xmlns="http://www.w3.org/2005/Atom"><entry>
 <id>http://arxiv.org/abs/2401.12345v2</id><title>Synthetic test publication</title>
@@ -34,7 +34,7 @@ class ArxivSearchTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             parse_document(SYNTHETIC_FEED.replace(b"<title>Synthetic test publication</title>", b""))
 
-    @patch("aws_version.arxiv_search.urlopen")
+    @patch("arxiv_search.urlopen")
     def test_real_request_shape_limits_results_and_sets_timeout(self, opener):
         response = MagicMock()
         response.__enter__.return_value.read.return_value = SYNTHETIC_FEED
@@ -47,16 +47,16 @@ class ArxivSearchTests(unittest.TestCase):
         self.assertEqual(opener.call_args.kwargs["timeout"], 30)
         self.assertEqual(result["document"]["version"], 2)
 
-    @patch("aws_version.arxiv_search.time.sleep")
-    @patch("aws_version.arxiv_search.urlopen", side_effect=URLError("Synthetic connection failure"))
+    @patch("arxiv_search.time.sleep")
+    @patch("arxiv_search.urlopen", side_effect=URLError("Synthetic connection failure"))
     def test_retries_stop_after_three_attempts(self, opener, sleep):
         with self.assertRaises(URLError):
             search_one("all:diabetes")
         self.assertEqual(opener.call_count, 3)
         self.assertEqual(sleep.call_args_list, [unittest.mock.call(3.1), unittest.mock.call(3.1)])
 
-    @patch("aws_version.arxiv_search.time.sleep")
-    @patch("aws_version.arxiv_search.urlopen")
+    @patch("arxiv_search.time.sleep")
+    @patch("arxiv_search.urlopen")
     def test_rate_limit_and_retry_after_stop_automatic_retries(self, opener, sleep):
         for code, headers in [(429, {}), (503, {"Retry-After": "60"})]:
             with self.subTest(code=code):
