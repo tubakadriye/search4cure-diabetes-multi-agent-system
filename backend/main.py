@@ -2,7 +2,7 @@
 import os
 #from google.adk import configure_dev_ui
 #from agent import root_agent
-from agent.agent_runner import call_agent, call_agent_sync
+from agent.agent_runner import call_agent
 
 # Optionally enable serving the ADK UI via Streamlit
 #serve_developer_ui = True
@@ -182,7 +182,7 @@ if search_button:
             # Step 3: If there’s a text query, invoke the text agent
             if query.strip():
                 try:
-                    agent_output = call_agent_sync(query)
+                    agent_output = call_agent(query)
                     st.success("Agent response received!")
                     st.write(f"DEBUG agent output: {agent_output}")
                     st.markdown(agent_output)

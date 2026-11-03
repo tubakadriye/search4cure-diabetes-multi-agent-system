@@ -187,7 +187,7 @@ def vector_search_image_tool(
     summaries = []
     for r in results[:5]:
         summary = gemini_page_image_summary(r, collection_ref)
-    summaries.append(summary)
+        summaries.append(summary)
         
     return "\n\n".join(summaries)
 

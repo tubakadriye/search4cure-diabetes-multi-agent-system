@@ -101,7 +101,7 @@ def vector_search(
         },
         {
             "$project": {
-                "_id": 0,
+                "_id": 1,
                 "gcs_key": 1,
                 "width": 1,
                 "height": 1,
