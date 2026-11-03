@@ -19,8 +19,11 @@ python3 -m aws_version.arxiv_search --query 'all:diabetes'
 To download the publication returned by a new query:
 
 ```bash
-python3 -m aws_version.download_pdf --query 'all:diabetes' --output-dir data/arxiv
+python3 -u -m aws_version.download_pdf --query 'all:diabetes' --output-dir data/arxiv
 ```
+
+Progress messages appear on stderr during the run; the final JSON is written
+to stdout. `-u` enables unbuffered Python output.
 
 Each version has its own folder containing a PDF named by its content hash and
 a JSON record for each successful retrieval. `data/` is excluded from Git.

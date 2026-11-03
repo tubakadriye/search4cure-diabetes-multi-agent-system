@@ -77,3 +77,10 @@ A PDF and its JSON record are written separately. A metadata-write failure can
 therefore leave a saved PDF without a matching JSON record until a rerun succeeds.
 Repeated downloads may share the same hash-named PDF and create separate retrieval
 records; database-level duplicate prevention is a later step.
+
+## Runtime progress output
+
+The download command now reports search, request attempts, downloaded bytes,
+and saved file paths on stderr while running. Its final stdout output remains
+JSON. After this change, all 13 metadata and download tests passed. A real run
+emitted progress messages and completed successfully for `2611.03601v1`.

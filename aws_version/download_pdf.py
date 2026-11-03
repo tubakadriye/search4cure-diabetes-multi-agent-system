@@ -57,6 +57,8 @@ def download_pdf(search_result, output_dir="data/arxiv"):
         temporary = None
         try:
             digest, size = hashlib.sha256(), 0
+            next_progress = 1024 * 1024
+            logging.info("Downloading %s (attempt %s/3)", url, attempt)
             with urlopen(request, timeout=30) as response:
                 length = response.headers.get("Content-Length")
                 expected_size = int(length) if length is not None else None
@@ -72,6 +74,9 @@ def download_pdf(search_result, output_dir="data/arxiv"):
                             raise ValueError("The PDF exceeds the 100 MiB limit.")
                         stream.write(block)
                         digest.update(block)
+                        if size >= next_progress:
+                            logging.info("Downloaded %s bytes", size)
+                            next_progress = size + 1024 * 1024
             if size == 0:
                 raise ValueError("The PDF response is empty.")
             if expected_size is not None and size != expected_size:
@@ -80,6 +85,7 @@ def download_pdf(search_result, output_dir="data/arxiv"):
             checksum = digest.hexdigest()
             destination = folder / (checksum + ".pdf")
             temporary.replace(destination)
+            logging.info("PDF saved: %s (%s bytes)", destination, size)
             record = {
                 "search": search_result,
                 "pdf_url": url,
@@ -90,6 +96,7 @@ def download_pdf(search_result, output_dir="data/arxiv"):
                 "status": "downloaded",
             }
             metadata_path = save_metadata(folder, record)
+            logging.info("Metadata saved: %s", metadata_path)
             return {**record, "metadata_path": str(metadata_path)}
         except (URLError, TimeoutError, IncompleteRead) as error:
             logging.warning("PDF request failed: arxiv_id=%s version=%s attempt=%s/3 error=%s",
@@ -111,12 +118,16 @@ def main():
     parser.add_argument("--query", default="all:diabetes", help="arXiv search expression")
     parser.add_argument("--output-dir", default="data/arxiv", help="Local destination directory")
     args = parser.parse_args()
-    logging.basicConfig(level=logging.WARNING)
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
     try:
+        logging.info("Searching arXiv: %s", args.query)
         result = search_one(args.query)
         if result["document"] is None:
             parser.exit(1, "No publication matched the query.\n")
+        document = result["document"]
+        logging.info("Found %sv%s: %s", document["arxiv_id"], document["version"], document["title"])
         # Keep the PDF request separate from the metadata request.
+        logging.info("Waiting 3.1 seconds before the PDF request")
         time.sleep(3.1)
         print(json.dumps(download_pdf(result, args.output_dir), indent=2, ensure_ascii=False))
     except (OSError, IncompleteRead, ValueError, ET.ParseError) as error:
