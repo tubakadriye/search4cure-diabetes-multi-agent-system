@@ -1,3 +1,4 @@
 .env
+data/
 .DS_Store
 backend/.DS_Storenotebooks/multimodal_rag_mongodb_voyage_ai.ipynb
