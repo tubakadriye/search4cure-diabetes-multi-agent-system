@@ -4,6 +4,10 @@ Search arXiv for one publication, download its exact PDF version, extract text
 by physical PDF page, create traceable text chunks, and extract referenced
 raster images with page provenance.
 
+Complete page PNGs preserve diagrams, captions and surrounding layout together.
+Each physical page has a local JSON record linking its image, extracted text,
+text-chunk IDs and exact document version.
+
 Metadata search and download use the Python standard library. Text and image
 extraction use PyMuPDF. The current environment is tested with Python 3.13.
 
@@ -61,7 +65,7 @@ Open [walkthrough.ipynb](notebooks/walkthrough.ipynb), select **Search4Cure (.ve
 and run the cells in order. It shows live outputs for metadata, download,
 page-level extraction, text chunks, a page preview, PostgreSQL setup and
 connection checks, document metadata import, pandas tables, image extraction
-with a reduced preview, and the tests.
+with a reduced preview, complete-page rendering with associated text, and the tests.
 Docker must be running for the database cells.
 
 You can also open it in JupyterLab:
@@ -156,8 +160,38 @@ metadata across repeated object references.
 Raster occurrences are not necessarily complete scientific figures: text,
 vector drawings, captions, clipping and page transformations are not reconstructed.
 Inline or unresolved images without an extractable object reference are recorded
-as unsupported. No fallback page rendering is performed. Images are not yet
+as unsupported. This extractor does not fall back to page rendering; complete
+pages are rendered separately below. Images are not yet
 stored in SQL, embedded with CLIP, or interpreted by a model.
+
+## Preserve complete page context
+
+```bash
+.venv/bin/python -u -m render_pages --metadata path/to/download-record.json --extraction path/to/extraction-record.json --chunks path/to/chunk-record.json
+```
+
+This saves one JSON page record per physical page in `pages/records/`, PNGs in
+`pages/assets/`, and a document-level attempt JSON in `pages/`. Records link the
+exact page text and chunk IDs after checking document/version/hash consistency
+and chunk text offsets. Empty pages are retained. Failed pages remain recorded
+without discarding successful pages.
+
+The default is 144 DPI (`--dpi`), RGB, with a 25-million-pixel per-page limit
+(`--max-pixels`). Rendering covers the complete visible PDF CropBox, honors
+rotation, and includes annotations. Hidden content outside that box is excluded.
+Without `--extraction`, text is extracted in the rendering pass; `--chunks`
+requires the corresponding extraction record. OCR is not performed.
+
+Text extraction and image rendering handle errors independently. A text error
+leaves `text` as `null` and records `text_error`; the PNG can still have
+`image_status: rendered`. The attempt is then `partial` (CLI exit code 1).
+Empty text is a valid empty result, distinct from an extraction error.
+
+Page records remain local JSON. Search and answer generation are later steps:
+retrieve relevant pages, load their actual PNG bytes and associated text into
+a vision-capable LLM model, then cite document version and physical page.
+No model request is made yet; retrieval quality, image resolution and source
+support still need evaluation.
 
 ## Store document metadata
 

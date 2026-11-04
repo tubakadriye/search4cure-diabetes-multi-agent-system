@@ -424,3 +424,154 @@ code cells completed and all 62 tests passed in 0.900 seconds without skips.
 The real arXiv query returned `2611.04405v1`; one raster image on physical
 page 3 was extracted successfully. The saved notebook in that commit contains
 this separate verification run. Full-page rendering is a subsequent change.
+
+## Full-page images linked to page text and chunks
+
+Validated on November 4, 2026 with Python 3.13.12 and PyMuPDF 1.28.2.
+`render_pages.py` supplements embedded-image extraction without changing it.
+No new dependency, model request, or AWS resource was needed.
+
+The initial new test run had 16 passing tests and one error in a test-only
+Pixmap crop-constructor call. Replacing that invalid test call with direct
+pixel checks in the known caption region resolved it. The rendering
+implementation did not require a change for that error.
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -u -m unittest discover -s tests -p test_render_pages.py -v
+.venv/bin/python -u run_notebook.py
+.venv/bin/python -m render_pages --help
+```
+
+All **17 new tests passed** in 0.471 seconds. Generated PDFs test complete-page
+records, exact page-text/chunk links, PNG hashes, vector drawings, caption
+pixels, rotation, CropBox dimensions, blank documents, new document versions,
+DPI variants, stable page IDs and unchanged PNG modification times on repeat.
+They also reject mismatched PDF/extraction snapshots and incorrect chunk
+page/text/ID mappings. Corrupt PDFs, changed source hashes, pixel limits,
+page-image writes, page-record writes, attempt-record writes and subsequent
+retry are covered. The CLI test verifies nonzero exit status for failed pages.
+All artificial documents and failures are explicitly synthetic.
+
+The notebook was executed from a fresh kernel through **12 code cells**,
+beginning with a real arXiv query and download. The existing single-image
+extraction still succeeded. The new full-page cell rendered all physical pages
+and displayed a page table, associated text and a reduced preview of page 3.
+All **79 tests passed** in 1.482 seconds without skips, including the actual
+PostgreSQL integration tests. Saved execution counts are 1 through 12 and
+there are no error outputs.
+
+| Real-source page check | Observed result |
+|---|---|
+| Document version | `2611.04405v1` |
+| Rendered / physical pages | 6 / 6 |
+| Failed pages | 0 |
+| PNG dimensions, all six pages | 1191 × 1684 pixels |
+| Rendering | 144 DPI, RGB, no alpha, annotations included |
+| Extracted page-text characters | 37,614 |
+| Linked text chunks | 50 |
+| Chunks per physical page | 8, 10, 6, 10, 8, 8 |
+| Combined full-page PNG size | 2,640,064 bytes |
+| Reduced notebook page-3 preview | 596 × 842 pixels |
+
+The source PDF SHA-256 remains
+`932ec59803c4c1495ebfbb7dd3b58e17afdbbc24e459e5a48f35f48a54bd3075`.
+The full-page attempt record is
+`data/arxiv/2611.04405v1/pages/d8ba7a9be7df42129ecd920f2e775613.json`.
+The page-3 PNG SHA-256 is
+`d39cec3d70cdb43fb2f61b92cece1b70dfb64bfb325211fddf4025fb26bac02e`.
+Generated files remain excluded from Git.
+
+A separate automated check verified all six saved page records, unique logical
+page IDs, PNG hashes and dimensions, exact text equality with each source
+extraction page, and all 50 chunk IDs with no missing or duplicate assignments.
+It also verified the extraction/chunk snapshot hashes and a saved PNG preview
+in the notebook. These checks do not establish scientific correctness or
+complete visual legibility.
+
+Each page JSON stores document/version/source metadata, PDF hash, physical page
+number, logical page ID, rendering-configuration ID, PNG path/hash/dimensions,
+the page text and its hash, text-parser configuration, chunk IDs and exact
+source-snapshot references, processing status/errors and processing time.
+Unknown source metadata is retained as unknown. Rendering follows the complete
+visible PDF CropBox and PDF rotation; hidden content outside that box is not
+included. A logical page ID is independent of DPI; a rendering ID also includes
+the rendering configuration.
+
+Without a supplied extraction, page text is extracted during rendering, and
+even an entirely blank document can produce valid page records. Missing chunk
+input is explicitly `not_provided`, rather than a claim that no chunks exist.
+If supplied, chunks must match the exact extraction snapshot and the associated
+page-text slices. A failed page gets a failed record while other pages continue.
+If a page record itself cannot be written, the document-level attempt records
+that failure when storage permits. A failed document-level write raises an
+error and leaves successfully stored page records/assets available for retry.
+
+Limits: page records are local JSON, not SQL rows. A repeat preserves valid
+PNG assets but still renders the pages and creates new attempt records; this
+is not a cross-run rendering cache. The application checks pixel dimensions
+before allocating its output pixmap, but does not bound every internal parser
+allocation. Finite DPI can lose small details; resolution and model input limits
+must be evaluated before vision-model use. OCR, page/image retrieval and
+image-plus-text answer generation are not implemented. No source-support or
+retrieval-quality improvement is claimed.
+
+The [official OpenAI file-input documentation](https://developers.openai.com/api/docs/guides/file-inputs)
+describes combining PDF text and page images for vision-capable models. This
+informs the page-context design, without adding an OpenAI dependency. The
+planned AWS answer step must load selected pages' actual image bytes and
+associated text, pass them to a compatible vision model, and cite the
+exact version/page. Filenames alone are not image inputs; that request path
+and its citation/evidence checks remain to be implemented and tested.
+Rendering behavior was checked against the
+[PyMuPDF Page.get_pixmap documentation](https://pymupdf.readthedocs.io/en/latest/page.html#Page.get_pixmap).
+
+## Independent text and page-image error handling
+
+Validated on November 4, 2026. An actual exception from `page.get_text()` in
+the no-extraction-record path previously skipped the image-rendering call for
+that page because both operations shared one exception handler. Empty text
+already worked and remains a valid empty result.
+
+Three new regression tests were first run against that implementation. They
+produced one assertion failure and two missing-field errors: the direct
+regression observed only two saved page images instead of three after a
+simulated first-page text exception; separate modality fields/counters did not
+yet exist.
+
+Text extraction and image rendering now have independent exception handlers.
+Text failure leaves `text` and `text_sha256` null, records `text_error`, and
+does not prevent saving the PNG. `image_status` / `image_error` report the image
+operation independently. Both errors survive when both operations fail.
+An attempt with saved images and a text failure is `partial`, so the CLI
+continues to return a nonzero status for incomplete processing.
+
+Counter semantics: `rendered_count` counts successfully rendered/stored page
+records, including those with failed text. `failed_count` counts page records
+whose rendering or record storage failed. `text_failed_count` and
+`image_failed_count` separately count modality failures. Therefore an attempt
+can be partial with zero failed image/page records but a nonzero text-failure
+count. A record-storage failure does not erase the independent modality fields.
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -u -m unittest discover -s tests -p test_render_pages.py -v
+.venv/bin/python -u run_notebook.py
+```
+
+After the correction, all **20 page-rendering tests passed** in 0.620 seconds.
+The three added tests verify a text error on one page with continued processing
+and successful retry, text errors on every page with all images preserved, and
+simultaneous text/image errors without losing either error message. Saved PNG
+hashes, persisted error fields and preservation of the PNG modification time
+on retry are checked. Existing blank-page tests also still pass.
+
+The full notebook completed **13 code cells**, with all **82 tests passing**
+in 1.361 seconds without skips. Its new offline cell generates a temporary,
+explicitly synthetic PDF and simulates a text exception. The saved output shows
+`text: null`, `image_status: rendered`, an existing PNG and a partial attempt.
+The unpatched retry recovers text without rewriting the PNG. This demonstration
+is not an observed source failure and is not imported into SQL.
+
+The real `2611.04405v1` download still produced six rendered page records,
+50 linked chunks, zero text failures and zero image failures. Its latest page
+attempt is `data/arxiv/2611.04405v1/pages/14d873fbb3964d1a97b862b3bcf9838a.json`.
+No vision-model behavior or scientific correctness was evaluated in this fix.
