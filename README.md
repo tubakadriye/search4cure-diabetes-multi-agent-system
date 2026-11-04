@@ -1,12 +1,12 @@
 # Search4Cure.AI
 
-Search arXiv for one publication, download its exact PDF version, and extract
-text by physical PDF page while preserving source metadata and content hashes.
+Search arXiv for one publication, download its exact PDF version, extract text
+by physical PDF page, and create traceable text chunks.
 
 Metadata search and download use the Python standard library. Text extraction
 uses PyMuPDF. The current environment is tested with Python 3.13.
 
-OCR, database storage, vector search, answer generation, and AWS integration
+OCR, embeddings, database storage, vector search, answer generation, and AWS integration
 are not implemented yet.
 
 ## Setup
@@ -23,7 +23,7 @@ For command-line use without the notebook, install `requirements.txt` instead.
 
 Open [walkthrough.ipynb](notebooks/walkthrough.ipynb), select **Search4Cure (.venv)**,
 and run the cells in order. It shows live outputs for metadata, download,
-page-level extraction, a text preview, and the offline tests.
+page-level extraction, text chunks, a page preview, and the offline tests.
 
 You can also open it in JupyterLab:
 
@@ -71,6 +71,17 @@ To extract text, use the `metadata_path` returned by the download command:
 Extraction verifies the PDF hash and records its parser configuration, physical
 page numbers, empty pages, and processing status. Results are stored beside
 the PDF in an `extracted/` folder. No OCR or table reconstruction is performed.
+
+To split an extraction into page-local text chunks:
+
+```bash
+.venv/bin/python -u -m chunk_text --extraction path/to/extraction-record.json --max-words 100 --overlap-words 20
+```
+
+Chunks retain the document version, PDF hash, physical page, and exact text
+offsets. Results are stored beside the PDF in a `chunks/` folder. IDs remain
+stable for equivalent content and configuration. Word limits do not enforce
+an embedding model's token limit; that check belongs to the embedding step.
 
 On macOS, if Python reports `CERTIFICATE_VERIFY_FAILED` and
 `/etc/ssl/cert.pem` exists, prefix the command with

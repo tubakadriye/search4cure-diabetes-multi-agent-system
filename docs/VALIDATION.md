@@ -1,7 +1,7 @@
 # Validation
 
 Scope: arXiv metadata retrieval, versioned PDF download, page-level text
-extraction, and the executable walkthrough notebook.
+extraction, traceable text chunks, and the executable walkthrough notebook.
 
 ## Offline tests
 
@@ -111,11 +111,11 @@ The setup regression test initially failed for both starting directories
 because `../data/arxiv` pointed outside the project after setup changed the
 working directory. With the project-relative destination corrected, it passed.
 
-The [walkthrough](../notebooks/walkthrough.ipynb) was executed from a fresh kernel
-through all six code cells: setup, real metadata query, real download, extraction,
-page preview, and offline tests. The notebook retains the actual outputs of the
-successful run. The runner reports progress as it executes and removes stale
-outputs before each new run.
+At the extraction stage, the [walkthrough](../notebooks/walkthrough.ipynb) was
+executed from a fresh kernel through six code cells: setup, real metadata query,
+real download, extraction, page preview, and offline tests. The later chunking
+stage adds another cell, as described below. The runner reports progress and
+removes stale outputs before each new run.
 
 The real source query returned
 [`2611.04405v1`](https://arxiv.org/abs/2611.04405v1), titled
@@ -145,3 +145,43 @@ OCR, image/table interpretation, embeddings, database storage, search, answer
 generation, and AWS deployment are still not implemented. The interactive
 browser interface has not been separately inspected; execution was validated
 with the registered local kernel through the notebook runner.
+
+## Page-local text chunks
+
+Validated on November 4, 2026. All **30 offline tests passed**, including eight
+new chunking tests. They cover word limits, overlap, exact Unicode text offsets,
+coverage of source words, page boundaries, empty pages, stable IDs across
+equivalent reruns, changed versions/hashes/configuration, invalid parameters,
+incomplete extraction records, invalid page numbers, and recovery after storage
+failure. The command-line `--help` check also completed successfully.
+
+The notebook was then executed from a fresh kernel through all **seven code
+cells**, including the new chunking cell and all 30 tests. It began with a new
+real `all:diabetes` query and downloaded `2611.04405v1` again. Outputs are saved
+in the notebook.
+
+| Check | Observed result |
+|---|---|
+| Chunk configuration | At most 100 whitespace-separated words, 20-word overlap |
+| Source document | `2611.04405v1`, 6 physical pages |
+| Total chunks | 50 |
+| Chunks per page | 8, 10, 6, 10, 8, 8 |
+| Pages without text | 0 |
+| Notebook test-process exit code | 0 |
+
+The live-sample checks compare each chunk with its exact source-page character
+slice, check its document/version/PDF-hash fields, verify unique IDs and word
+limits, and check coverage of all non-whitespace source characters. Offsets
+refer to Unicode character indices in the extracted page text, not PDF bytes.
+
+Each chunking record stores the source extraction file path and SHA-256,
+document metadata, source PDF hash, parser configuration and chunking policy.
+Chunk IDs exclude retrieval timestamps and attempt filenames; offline tests
+confirm that equivalent content retains IDs. Separate attempt records are
+still created. Database deduplication and embedding reuse are not implemented.
+
+This word-window policy can split sentences and is not an embedding-token
+budget. Model token limits must be checked before embeddings are introduced.
+The text preview contains fragmented lines; exact source slices establish
+attribution to the parser output, not correct PDF reading order or relevance.
+No retrieval-quality improvement is claimed for this configuration.
