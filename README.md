@@ -6,10 +6,11 @@ by physical PDF page, and create traceable text chunks.
 Metadata search and download use the Python standard library. Text extraction
 uses PyMuPDF. The current environment is tested with Python 3.13.
 
-Local PostgreSQL setup and a connection check are available. Documents and
-chunks are still stored as files; database tables and imports are a later step.
+Local PostgreSQL stores metadata for downloaded document versions. PDFs and
+text/chunk results remain local files. The notebook displays SQL results as
+a pandas DataFrame, a table in Python memory.
 
-OCR, embeddings, database storage, vector search, answer generation, and AWS integration
+OCR, embeddings, SQL storage of text chunks, vector search, answer generation, and AWS integration
 are not implemented yet.
 
 ## Setup
@@ -31,6 +32,7 @@ or run them from the project root:
 .venv/bin/python -m database init-password
 docker compose up -d --wait --wait-timeout 60 postgres
 .venv/bin/python -m database check
+.venv/bin/python -m database init-schema
 ```
 
 The first command creates `data/postgres/password.txt`, a private password
@@ -43,7 +45,9 @@ change the database's existing password.
 PostgreSQL is accessible only at `127.0.0.1:55432`. To change the port, set
 `POSTGRES_PORT` for both Docker Compose and Python. Compose may also read that
 variable from a root `.env`. The image includes pgvector, an extension for
-storing vectors; initialization enables it without creating application tables.
+storing vectors. `init-schema` explicitly creates the document table, including
+on an existing volume; repeat execution preserves its rows. It does not migrate
+an existing table with a different definition.
 This local development setup uses a bootstrap database administrator account.
 
 Stop PostgreSQL with `docker compose stop postgres`. Its named volume retains
@@ -55,7 +59,8 @@ been tested.
 Open [walkthrough.ipynb](notebooks/walkthrough.ipynb), select **Search4Cure (.venv)**,
 and run the cells in order. It shows live outputs for metadata, download,
 page-level extraction, text chunks, a page preview, PostgreSQL setup and
-connection checks, and the tests. Docker must be running for the database cells.
+connection checks, document metadata import, a pandas table, and the tests.
+Docker must be running for the database cells.
 
 You can also open it in JupyterLab:
 
@@ -122,15 +127,41 @@ On macOS, if Python reports `CERTIFICATE_VERIFY_FAILED` and
 Run one search at a time and wait at least 3.1 seconds between runs,
 following the [arXiv API rules](https://info.arxiv.org/help/api/tou.html).
 
+## Store document metadata
+
+After database setup, import the download JSON from the project root:
+
+```bash
+.venv/bin/python -u -m store_document --metadata path/to/download-record.json
+```
+
+The importer verifies required fields, timezone-aware retrieval times, PDF size
+and SHA-256 before writing. A primary key on `(arxiv_id, version)` prevents
+duplicates. The same version and hash return `unchanged`; changed bytes for an
+existing version raise a conflict without replacing its row. SQL parameters
+are bound separately from SQL commands. Writes use a transaction so failed
+inserts can be retried.
+
+The table retains the first imported download record for each version. Later
+retrievals remain in local JSON files; they do not update this first snapshot.
+Unknown source submission times remain `NULL`. Submission times, source
+retrieval times and the database storage time have different meanings; none
+establish the exact public availability of a version.
+
+The `downloaded` status describes the download, not successful extraction.
+Parser/chunk configuration remains in the corresponding JSON results.
+Import-run tracking, failed-document records and SQL storage of processing
+results are later steps. See [quality queries](sql/quality.sql) for SQL checks.
+
 ## Test
 
 ```bash
 .venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v
 ```
 
-By default, tests use simulated API responses and generated PDFs; the two
+By default, tests use simulated API responses and generated PDFs; the
 tests requiring PostgreSQL are skipped. With local PostgreSQL running, include
-those actual connection and incorrect-password checks:
+actual connection, authentication and document-storage checks:
 
 ```bash
 S4C_TEST_POSTGRES=1 .venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v

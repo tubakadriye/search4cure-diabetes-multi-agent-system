@@ -1,4 +1,4 @@
-"""Prepare local PostgreSQL credentials and check the database with a read-only query."""
+"""Prepare local PostgreSQL credentials, initialize tables, and check connectivity."""
 
 import argparse
 import json
@@ -34,18 +34,34 @@ def create_password_file(path=PASSWORD_FILE):
     return True
 
 
-def check_connection(password_path=PASSWORD_FILE):
-    """Connect to loopback PostgreSQL with bounded waits; return no credentials."""
+def open_connection(password_path=PASSWORD_FILE):
+    """Open a bounded local connection; the caller must close it."""
     password = Path(password_path).read_text(encoding="utf-8").rstrip("\n")
     if not password:
         raise ValueError("The local PostgreSQL password file is empty.")
     port = int(os.environ.get("POSTGRES_PORT", "55432"))
     if not 1 <= port <= 65535:
         raise ValueError("POSTGRES_PORT must be between 1 and 65535.")
-    logging.info("Checking local PostgreSQL at 127.0.0.1:%s", port)
-    with psycopg.connect(host="127.0.0.1", port=port, dbname="search4cure", user="search4cure",
-                         password=password, connect_timeout=5, autocommit=True,
-                         options="-c statement_timeout=5000", row_factory=dict_row) as connection:
+    logging.info("Connecting to local PostgreSQL at 127.0.0.1:%s", port)
+    return psycopg.connect(host="127.0.0.1", port=port, dbname="search4cure", user="search4cure",
+                          password=password, connect_timeout=5, autocommit=True,
+                          options="-c statement_timeout=5000", row_factory=dict_row)
+
+
+def initialize_schema(connection=None):
+    """Create the document table explicitly, including on existing Docker volumes."""
+    if connection is None:
+        with open_connection() as owned_connection:
+            initialize_schema(owned_connection)
+        return
+    schema = Path(__file__).resolve().parent / "sql" / "002_document_versions.sql"
+    with connection.transaction():
+        connection.execute(schema.read_text(encoding="utf-8"))
+
+
+def check_connection(password_path=PASSWORD_FILE):
+    """Run a read-only server check and return no credentials."""
+    with open_connection(password_path) as connection:
         result = connection.execute(HEALTH_SQL).fetchone()
     if result is None or result["check_value"] != 1:
         raise RuntimeError("The database did not return the expected connection check.")
@@ -56,7 +72,7 @@ def check_connection(password_path=PASSWORD_FILE):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=["init-password", "check"])
+    parser.add_argument("command", choices=["init-password", "init-schema", "check"])
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     try:
@@ -64,6 +80,9 @@ def main():
             created = create_password_file()
             print("Local PostgreSQL password file created." if created else
                   "Existing PostgreSQL password file kept unchanged.")
+        elif args.command == "init-schema":
+            initialize_schema()
+            print("Document table initialized; existing data kept.")
         else:
             print(json.dumps(check_connection(), indent=2))
     except (OSError, ValueError, RuntimeError, psycopg.Error) as error:

@@ -1,4 +1,5 @@
 -r requirements.txt
+pandas==3.1.0
 ipykernel==7.4.0
 nbclient==0.11.0
 nbformat==5.11.1

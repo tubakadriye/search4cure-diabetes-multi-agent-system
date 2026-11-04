@@ -215,8 +215,7 @@ S4C_TEST_POSTGRES=0 PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -u -m unittest di
 | Password file permissions | `0600` |
 | Git ignores password file and root `.env` | Confirmed |
 
-The password file is `data/postgres/password.txt`; no `.env` file in `data/`
-is required. Existing password files are preserved. Docker receives this file
+The password file is `data/postgres/password.txt`. Existing password files are preserved. Docker receives this file
 through a Compose secret; the Python connection reads the same local file.
 The file content is never printed by the setup or connection functions.
 
@@ -254,3 +253,84 @@ Configuration references:
 [Docker Compose secrets](https://docs.docker.com/compose/how-tos/use-secrets/),
 [pgvector installation and Docker images](https://github.com/pgvector/pgvector),
 and [Psycopg connection usage](https://www.psycopg.org/psycopg3/docs/basic/usage.html).
+
+## Store one document version in PostgreSQL
+
+Validated on November 4, 2026. This step adds `document_versions`, an explicit
+schema initializer, download-record validation, a parameterized SQL importer,
+and a pandas display in the existing notebook. Runtime requirements are
+unchanged; pandas 3.1.0 is a notebook-only dependency. The local installation
+resolved NumPy 2.5.4. Transitive dependencies are not fully locked.
+
+The offline command discovered 50 tests: **42 passed and eight database tests
+were skipped**, in 11.439 seconds. With `S4C_TEST_POSTGRES=1`, **all 50 passed**
+in 1.611 seconds. Twelve new tests cover required fields, document/version URL
+consistency, unknown source times, timezone-aware retrieval times, changed or
+missing PDFs, failed downloads, invalid hashes, source preservation on database
+failure, duplicate import, new versions, content conflicts, quoted titles,
+repeat schema initialization, SQL rollback and retry.
+
+Document integration tests create an isolated schema inside a transaction with
+forced rollback. Their explicitly synthetic download files are not parser
+fixtures and are never imported into the application table. A deliberate SQL
+constraint failure verified that an unsuccessful insert leaves zero rows and
+that retry succeeds after the test constraint is removed.
+
+The complete notebook then ran from a fresh kernel through **ten code cells**:
+real arXiv query, download, extraction, chunking, preview, PostgreSQL setup and
+check, the new SQL import/display, and tests. It downloaded `2611.04405v1`
+again (577,377 bytes, SHA-256
+`932ec59803c4c1495ebfbb7dd3b58e17afdbbc24e459e5a48f35f48a54bd3075`),
+extracted six pages, and produced 50 chunks. All **50 notebook tests passed**
+in 0.705 seconds, without skips; code-cell execution counts are 1 through 10,
+with no error outputs. The command-line import `--help` check also succeeded.
+
+| Live import check | Observed result |
+|---|---|
+| First import of this version | `inserted` |
+| Immediate repeated import of the same download JSON | `unchanged` |
+| SQL rows for this document version | 1 |
+| First import duration | 0.011682 seconds |
+| Repeated import duration | 0.011077 seconds |
+| Duplicate versions from `sql/quality.sql` | 0 |
+| Rows with unknown submission times in this real sample | 0 |
+| Remaining synthetic test schemas | 0 |
+| Synthetic documents in the application table | 0 |
+
+Durations were measured with `time.perf_counter()` around each `store_document`
+call, including file validation, opening a connection and SQL execution. These
+are two observations on one local Docker database, not a throughput benchmark
+or evidence of a meaningful speed improvement. The checked improvement is
+duplicate prevention: repeat import retains one row and the first snapshot.
+Embedding reuse is not implemented or measured.
+
+The primary key is `(arxiv_id, version)`. `ON CONFLICT DO NOTHING` avoids
+overwriting existing rows; the importer then compares the stored PDF hash and
+rejects changed content for that version. Successful writes are transactional.
+The stored snapshot contains the first imported download JSON and its path,
+source URLs, PDF path/hash/size, source submission times, metadata and PDF
+retrieval times, and the database write time. Unknown source times stay `NULL`.
+
+Limits: the table's `downloaded` status describes downloading only. Parser and
+chunk configurations remain in local JSON; page text, chunks, image references,
+processing errors and import-run records are not yet stored in SQL. Later
+retrieval records stay on disk rather than replacing the SQL snapshot. No
+historical availability filter, embedding, retrieval-quality evaluation or AWS
+deployment is provided by this step. Schema creation preserves an existing
+table; it is not a migration mechanism for a differently defined table.
+
+References consulted for this implementation:
+[PostgreSQL 16 INSERT / ON CONFLICT](https://www.postgresql.org/docs/16/sql-insert.html),
+[Psycopg parameter binding](https://www.psycopg.org/psycopg3/docs/basic/params.html),
+[Psycopg transactions](https://www.psycopg.org/psycopg3/docs/basic/transactions.html),
+and the [pandas release on PyPI](https://pypi.org/project/pandas/3.1.0/).
+
+## SQL-only commit verification
+
+On November 4, 2026, the notebook was executed separately with the SQL-storage
+implementation and without raster-image code or tests. All ten code cells
+completed successfully, and all 50 tests passed in 0.701 seconds without skips.
+The real arXiv query again returned `2611.04405v1`. Both SQL imports returned
+`unchanged`, retaining one row because this version was already stored. The
+first-insert measurements above describe the earlier run; the saved notebook
+outputs in this SQL-only commit show this subsequent verification run.
