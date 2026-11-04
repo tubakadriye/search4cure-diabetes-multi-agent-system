@@ -1,7 +1,7 @@
 # Validation
 
-Scope: metadata retrieval and one versioned PDF download using the Python
-standard library.
+Scope: arXiv metadata retrieval, versioned PDF download, page-level text
+extraction, and the executable walkthrough notebook.
 
 ## Offline tests
 
@@ -67,10 +67,9 @@ A new `all:diabetes` API query was followed by a download from
 - Metadata retrieval and PDF retrieval have separate timestamps. Source submission
   timestamps were retained without inferring public availability.
 
-This confirms transport and local storage for one real PDF. Only its header,
-size, and hash were checked; full PDF readability and text extraction have not
-been tested. Database storage, embeddings, document search, generated answers,
-and AWS integration are not implemented yet.
+This download-only check confirmed transport and local storage for one real
+PDF. Its header, size, and hash were checked. Text extraction was subsequently
+validated separately as described below.
 
 Failures are reported on stderr; only successful downloads receive JSON records.
 A PDF and its JSON record are written separately. A metadata-write failure can
@@ -91,3 +90,58 @@ After moving the modules to the project root, all 13 offline tests passed.
 Both `python3 -m arxiv_search --help` and `python3 -m download_pdf --help`
 completed successfully. No additional live API request was needed for this
 layout change.
+
+## Text extraction and notebook
+
+Validated on November 4, 2026 with Python 3.13.12 and PyMuPDF 1.28.2.
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -u -m unittest discover -s tests -p 'test_*.py' -v
+.venv/bin/python -u run_notebook.py
+```
+
+All **22 offline tests passed**: the previous 13 tests, eight extraction tests,
+and one notebook setup regression test covering both project-root and
+notebook-directory starts. Generated PDFs test physical page numbering,
+provenance, parser configuration, empty pages, completely empty text,
+unreadable PDFs, changed source hashes, missing metadata, NUL replacement,
+and recovery after a result-storage failure.
+
+The setup regression test initially failed for both starting directories
+because `../data/arxiv` pointed outside the project after setup changed the
+working directory. With the project-relative destination corrected, it passed.
+
+The [walkthrough](../notebooks/walkthrough.ipynb) was executed from a fresh kernel
+through all six code cells: setup, real metadata query, real download, extraction,
+page preview, and offline tests. The notebook retains the actual outputs of the
+successful run. The runner reports progress as it executes and removes stale
+outputs before each new run.
+
+The real source query returned
+[`2611.04405v1`](https://arxiv.org/abs/2611.04405v1), titled
+"DR-LiteNet: A Lightweight Explainable Hybrid CNN Framework for Imbalanced
+Diabetic Retinopathy Grading via Adaptive SMOTE Fusion".
+
+| Check | Observed result |
+|---|---|
+| Downloaded PDF size | 577,377 bytes |
+| SHA-256 | `932ec59803c4c1495ebfbb7dd3b58e17afdbbc24e459e5a48f35f48a54bd3075` |
+| Physical PDF pages | 6 |
+| Extracted characters, including whitespace | 37,614 |
+| Empty pages | 0 |
+| NUL replacements | 0 |
+| Parser repaired this PDF | No |
+| Final notebook test process exit code | 0 |
+
+Each extraction record links to its download record, exact document version,
+PDF hash, parser configuration, and physical page numbers. Source submission,
+metadata retrieval, PDF retrieval, and processing times remain distinct.
+Failures after input-metadata validation receive a failed extraction record;
+if result storage itself fails, the error is raised and the original remains.
+
+These checks establish extraction and traceability for one real publication,
+not scientific correctness, text-reading-order accuracy, or search relevance.
+OCR, image/table interpretation, embeddings, database storage, search, answer
+generation, and AWS deployment are still not implemented. The interactive
+browser interface has not been separately inspected; execution was validated
+with the registered local kernel through the notebook runner.
