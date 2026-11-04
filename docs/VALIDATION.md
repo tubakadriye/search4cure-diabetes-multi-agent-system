@@ -334,3 +334,93 @@ The real arXiv query again returned `2611.04405v1`. Both SQL imports returned
 `unchanged`, retaining one row because this version was already stored. The
 first-insert measurements above describe the earlier run; the saved notebook
 outputs in this SQL-only commit show this subsequent verification run.
+
+## Referenced raster-image extraction
+
+Validated on November 4, 2026 with the existing PyMuPDF 1.28.2 dependency.
+No additional package was installed for this step. `extract_images.py` accepts
+the successful download JSON, verifies the source PDF hash, and records raster
+occurrences by physical page and unrotated page coordinates. PNG assets are
+named by their output SHA-256; separate occurrence IDs include document version,
+PDF hash, page/position, PDF object reference and parser configuration.
+
+Executed checks:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -u -m unittest discover -s tests -p test_extract_images.py -v
+.venv/bin/python -u run_notebook.py
+.venv/bin/python -m extract_images --help
+```
+
+All **12 new offline tests passed** in 0.128 seconds. Generated PDFs cover
+reused images on the same page and different pages, exact PNG hashes/dimensions,
+stable occurrence IDs and preservation of PNG modification times on repeat,
+new document versions, soft transparency masks, text/vector-only pages,
+damaged PDFs, changed source hashes, missing metadata, invalid limits and
+oversized images. A generated inline-image PDF confirms an explicit unsupported
+result. Simulated image-write and manifest-write failures test preservation of
+successful assets and successful retry. These fixtures are not production data.
+
+The complete notebook then executed **11 code cells** from a fresh kernel,
+starting with a real arXiv query and download. All **62 tests passed** in
+0.896 seconds, including the actual PostgreSQL tests; no tests were skipped.
+Saved code-cell execution counts are 1 through 11, with no error outputs.
+
+| Real-source image check | Observed result |
+|---|---|
+| Document version | `2611.04405v1` |
+| Physical PDF pages | 6 |
+| Raster occurrences / distinct PNG assets | 1 / 1 |
+| Physical source page | 3 |
+| PDF image object reference (`xref`) | 323 |
+| Soft transparency mask object reference | 351 |
+| Stored PNG dimensions | 2031 × 865 pixels |
+| Reduced notebook preview dimensions | 508 × 217 pixels |
+| Failed / unsupported occurrences | 0 / 0 |
+| Extraction status | `extracted` |
+| Output PNG SHA-256 | `8dfefe9a865277b558960f4492e3be0b5aca33b58278dd953634441925224223` |
+
+The attempt record is
+`data/arxiv/2611.04405v1/images/487800d8c0194514a6bbb8ac223c5bad.json`;
+the PNG is in its `assets/` subfolder. These generated files remain excluded
+from Git. A separate automated check reopened the PNG, verified its dimensions
+and hash, matched its object reference and bounding box to the source page,
+verified the extracted source-image byte hash, and confirmed a saved PNG
+preview in the notebook. It did not assess scientific content or full-page
+visual equivalence.
+
+The source PDF in this run still had SHA-256
+`932ec59803c4c1495ebfbb7dd3b58e17afdbbc24e459e5a48f35f48a54bd3075`.
+The SQL import correctly returned `unchanged` for both calls, because this
+version was already stored during the preceding step. Later retrieval and image
+processing records remain separate from that first SQL download snapshot.
+
+Status semantics: `no_images` means no raster occurrences were reported, not
+that no scientific figures exist. Any failed or unsupported occurrence produces
+`partial`, even if none succeeded; a complete source/PDF failure produces a
+failed attempt and raises an error. Failure to write the attempt record itself
+raises a storage error. Successful assets are preserved. The CLI returns a
+nonzero status for partial/failed runs.
+
+Limits: PNG derivatives apply soft masks and convert non-gray/non-RGB color
+spaces to RGB. They do not reproduce clipping, page transformations, overlays,
+captions or composite figures. Vector drawings and inline/unresolved images
+have no fallback rendering. The 25-million-pixel application limit does not
+bound every internal parser allocation. A rerun can reuse PNG files but still
+decodes images; there is no cross-run parser/embedding cache. Images are not
+stored in SQL, interpreted, or embedded with CLIP yet. Scientific relevance
+and figure completeness have not been evaluated.
+
+References consulted:
+[PyMuPDF image occurrence information](https://pymupdf.readthedocs.io/en/latest/page.html#Page.get_image_info),
+[image extraction](https://pymupdf.readthedocs.io/en/latest/document.html#Document.extract_image),
+and [image / transparency recipes](https://pymupdf.readthedocs.io/en/latest/recipes-images.html).
+
+## Embedded-image commit verification
+
+Before publishing the embedded-image step on November 4, 2026, its notebook
+was executed separately without full-page rendering code or tests. All eleven
+code cells completed and all 62 tests passed in 0.900 seconds without skips.
+The real arXiv query returned `2611.04405v1`; one raster image on physical
+page 3 was extracted successfully. The saved notebook in that commit contains
+this separate verification run. Full-page rendering is a subsequent change.

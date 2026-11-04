@@ -1,10 +1,11 @@
 # Search4Cure.AI
 
 Search arXiv for one publication, download its exact PDF version, extract text
-by physical PDF page, and create traceable text chunks.
+by physical PDF page, create traceable text chunks, and extract referenced
+raster images with page provenance.
 
-Metadata search and download use the Python standard library. Text extraction
-uses PyMuPDF. The current environment is tested with Python 3.13.
+Metadata search and download use the Python standard library. Text and image
+extraction use PyMuPDF. The current environment is tested with Python 3.13.
 
 Local PostgreSQL stores metadata for downloaded document versions. PDFs and
 text/chunk results remain local files. The notebook displays SQL results as
@@ -59,7 +60,8 @@ been tested.
 Open [walkthrough.ipynb](notebooks/walkthrough.ipynb), select **Search4Cure (.venv)**,
 and run the cells in order. It shows live outputs for metadata, download,
 page-level extraction, text chunks, a page preview, PostgreSQL setup and
-connection checks, document metadata import, a pandas table, and the tests.
+connection checks, document metadata import, pandas tables, image extraction
+with a reduced preview, and the tests.
 Docker must be running for the database cells.
 
 You can also open it in JupyterLab:
@@ -126,6 +128,36 @@ On macOS, if Python reports `CERTIFICATE_VERIFY_FAILED` and
 
 Run one search at a time and wait at least 3.1 seconds between runs,
 following the [arXiv API rules](https://info.arxiv.org/help/api/tou.html).
+
+## Extract raster images
+
+Use the successful download JSON:
+
+```bash
+.venv/bin/python -u -m extract_images --metadata path/to/download-record.json
+```
+
+The extractor verifies the PDF hash and stores PNG derivatives in `images/assets/`
+beside the PDF. A JSON attempt record links each occurrence to document version,
+PDF hash, physical page, image object reference and page coordinates. Reused
+images share a PNG file; valid existing files are not rewritten. Soft transparency
+masks are applied, and non-gray/non-RGB color spaces are converted to RGB.
+
+No raster occurrences produces `no_images`, not a failed document. Unsupported
+or failed occurrences produce `partial`; successful assets are retained for
+retry. The CLI exits with code 1 for a partial or failed extraction. A failed
+manifest write raises an error; existing assets remain available for retry.
+
+The default per-image limit is 25 million pixels (`--max-pixels` overrides it).
+This bounds application decoding checks, not all internal parser memory use.
+The pipeline processes one source PDF at a time and caches only extracted-asset
+metadata across repeated object references.
+
+Raster occurrences are not necessarily complete scientific figures: text,
+vector drawings, captions, clipping and page transformations are not reconstructed.
+Inline or unresolved images without an extractable object reference are recorded
+as unsupported. No fallback page rendering is performed. Images are not yet
+stored in SQL, embedded with CLIP, or interpreted by a model.
 
 ## Store document metadata
 
