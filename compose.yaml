@@ -1,0 +1,29 @@
+name: search4cure-local
+
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.7-pg16-bookworm
+    environment:
+      POSTGRES_DB: search4cure
+      POSTGRES_USER: search4cure
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-55432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./sql/001_enable_vector.sql:/docker-entrypoint-initdb.d/001_enable_vector.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U search4cure -d search4cure"]
+      interval: 2s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+
+secrets:
+  postgres_password:
+    file: ./data/postgres/password.txt
+
+volumes:
+  postgres_data:

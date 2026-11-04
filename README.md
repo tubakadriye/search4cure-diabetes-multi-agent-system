@@ -6,6 +6,9 @@ by physical PDF page, and create traceable text chunks.
 Metadata search and download use the Python standard library. Text extraction
 uses PyMuPDF. The current environment is tested with Python 3.13.
 
+Local PostgreSQL setup and a connection check are available. Documents and
+chunks are still stored as files; database tables and imports are a later step.
+
 OCR, embeddings, database storage, vector search, answer generation, and AWS integration
 are not implemented yet.
 
@@ -19,11 +22,40 @@ python3 -m venv .venv
 
 For command-line use without the notebook, install `requirements.txt` instead.
 
+## Local PostgreSQL
+
+Start Docker Desktop. The notebook includes executable cells for these steps,
+or run them from the project root:
+
+```bash
+.venv/bin/python -m database init-password
+docker compose up -d --wait --wait-timeout 60 postgres
+.venv/bin/python -m database check
+```
+
+The first command creates `data/postgres/password.txt`, a private password
+file excluded from Git. It preserves an existing file and never prints its
+contents. No `.env` file is required for this setup; an existing root `.env`
+is not used by the Python connection code. Do not replace the password file
+while keeping an initialized database volume: creating a new file does not
+change the database's existing password.
+
+PostgreSQL is accessible only at `127.0.0.1:55432`. To change the port, set
+`POSTGRES_PORT` for both Docker Compose and Python. Compose may also read that
+variable from a root `.env`. The image includes pgvector, an extension for
+storing vectors; initialization enables it without creating application tables.
+This local development setup uses a bootstrap database administrator account.
+
+Stop PostgreSQL with `docker compose stop postgres`. Its named volume retains
+the database; the password file must also be kept. Backup and restore have not
+been tested.
+
 ## Notebook
 
 Open [walkthrough.ipynb](notebooks/walkthrough.ipynb), select **Search4Cure (.venv)**,
 and run the cells in order. It shows live outputs for metadata, download,
-page-level extraction, text chunks, a page preview, and the offline tests.
+page-level extraction, text chunks, a page preview, PostgreSQL setup and
+connection checks, and the tests. Docker must be running for the database cells.
 
 You can also open it in JupyterLab:
 
@@ -96,7 +128,15 @@ following the [arXiv API rules](https://info.arxiv.org/help/api/tou.html).
 .venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v
 ```
 
-Tests use simulated API responses and run without network access.
+By default, tests use simulated API responses and generated PDFs; the two
+tests requiring PostgreSQL are skipped. With local PostgreSQL running, include
+those actual connection and incorrect-password checks:
+
+```bash
+S4C_TEST_POSTGRES=1 .venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+```
+
+The notebook runs this complete suite after starting PostgreSQL.
 See [validation results](docs/VALIDATION.md) for the recorded checks.
 
 ## Development steps

@@ -185,3 +185,72 @@ budget. Model token limits must be checked before embeddings are introduced.
 The text preview contains fragmented lines; exact source slices establish
 attribution to the parser output, not correct PDF reading order or relevance.
 No retrieval-quality improvement is claimed for this configuration.
+
+## Local PostgreSQL setup and notebook connection checks
+
+Validated on November 4, 2026 with Python 3.13.12 and Psycopg 3.3.7.
+The initial check found no PostgreSQL driver or local password file. After
+installing the runtime requirements, these commands completed successfully:
+
+```bash
+.venv/bin/python -m database init-password
+docker compose config --quiet
+docker compose up -d --wait --wait-timeout 60 postgres
+.venv/bin/python -u -m database check
+S4C_TEST_POSTGRES=0 PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -u -m unittest discover -s tests -p 'test_*.py' -v
+.venv/bin/python -u run_notebook.py
+```
+
+| Check | Observed result |
+|---|---|
+| Separate Compose project | `search4cure-local` |
+| Image | `pgvector/pgvector:0.8.7-pg16-bookworm` |
+| Database volume created | `search4cure-local_postgres_data` |
+| Published address | `127.0.0.1:55432` |
+| Container health | Healthy |
+| Connected database / role | `search4cure` / `search4cure` |
+| PostgreSQL version | `16.15 (Debian 16.15-1.pgdg12+2)` |
+| Enabled pgvector version | `0.8.7` |
+| Public application tables | 0 |
+| Password file permissions | `0600` |
+| Git ignores password file and root `.env` | Confirmed |
+
+The password file is `data/postgres/password.txt`; no `.env` file in `data/`
+is required. Existing password files are preserved. Docker receives this file
+through a Compose secret; the Python connection reads the same local file.
+The file content is never printed by the setup or connection functions.
+
+The default offline run discovered 38 tests: **36 passed and two database
+integration tests were skipped**, in 0.619 seconds. Six new offline tests cover
+private password creation, preservation of an existing file, missing or empty
+credentials, connection/statement timeouts, context-manager cleanup, missing
+pgvector, and connection failure propagation.
+
+The notebook was executed from a fresh kernel through **nine code cells**,
+including executable password setup, Docker startup, and the read-only SQL
+check. Its test subprocess sets `S4C_TEST_POSTGRES=1`: **all 38 tests passed**
+in 0.610 seconds, with no skips. The two actual database tests verified a
+successful connection and an authentication rejection for an incorrect
+password. The latter checks the authentication error text, so an unreachable
+server alone would not satisfy the test.
+
+The notebook again queried real arXiv metadata, downloaded `2611.04405v1`,
+extracted six pages, and produced 50 chunks. It then reused the existing
+password file and started the already-running database without replacing it.
+Saved notebook outputs have execution counts 1 through 9 and no error outputs.
+An additional check confirmed that the password value is absent from the saved
+notebook. These are executed notebook checks, not a separate inspection of the
+interactive browser interface.
+
+Only database setup and connectivity are implemented. The SQL check reads
+server metadata; documents and chunks remain in files. There are no application
+tables, SQL document imports, embeddings, or vector searches yet. Extension
+initialization runs only when the database volume is first initialized. A new
+password file does not change credentials already stored in an existing volume.
+The role is a local bootstrap administrator, not a prepared production role.
+Backup/restore, AWS deployment, and production access controls are not tested.
+
+Configuration references:
+[Docker Compose secrets](https://docs.docker.com/compose/how-tos/use-secrets/),
+[pgvector installation and Docker images](https://github.com/pgvector/pgvector),
+and [Psycopg connection usage](https://www.psycopg.org/psycopg3/docs/basic/usage.html).
