@@ -39,3 +39,34 @@ FROM page_contexts AS p
 LEFT JOIN document_versions AS d
   ON d.arxiv_id = p.arxiv_id AND d.version = p.version AND d.sha256 = p.source_pdf_sha256
 WHERE d.arxiv_id IS NULL;
+
+-- Expected: no duplicate chunk IDs or duplicate context/chunk links.
+SELECT chunk_id, count(*) AS row_count
+FROM text_chunks GROUP BY chunk_id HAVING count(*) > 1;
+
+SELECT context_id, chunk_id, count(*) AS row_count
+FROM page_context_chunks GROUP BY context_id, chunk_id HAVING count(*) > 1;
+
+-- Expected: no orphan chunks; successful imports require at least one context link.
+SELECT c.chunk_id FROM text_chunks AS c
+LEFT JOIN page_context_chunks AS l ON l.chunk_id = c.chunk_id
+WHERE l.chunk_id IS NULL;
+
+-- Expected: no inconsistent linked page text/configuration or chunk assignments.
+-- Python offsets start at zero; SQL substring starts at one. Both count characters.
+SELECT c.chunk_id, p.context_id
+FROM page_context_chunks AS l
+JOIN text_chunks AS c ON c.chunk_id = l.chunk_id
+JOIN page_contexts AS p ON p.context_id = l.context_id
+WHERE l.page_id IS DISTINCT FROM c.page_id OR l.page_id IS DISTINCT FROM p.page_id
+   OR p.text_status <> 'extracted'
+   OR substring(p.page_text FROM c.start_char + 1 FOR c.end_char - c.start_char)
+      IS DISTINCT FROM c.chunk_text
+   OR p.page_record -> 'text_parser' IS DISTINCT FROM c.parser_config
+   OR p.page_record -> 'chunking' IS DISTINCT FROM c.chunking_config
+   OR NOT (c.chunk_id = ANY(p.chunk_ids));
+
+-- Inventory: multiple policies and context variants can be intentional.
+SELECT arxiv_id, version, chunking_config, count(*) AS chunks,
+       sum(word_count) AS words_including_overlap
+FROM text_chunks GROUP BY arxiv_id, version, chunking_config;

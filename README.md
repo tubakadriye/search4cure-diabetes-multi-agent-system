@@ -12,13 +12,32 @@ imported into PostgreSQL.
 Metadata search and download use the Python standard library. Text and image
 extraction use PyMuPDF. The current environment is tested with Python 3.13.
 
-Local PostgreSQL stores document metadata, page text, PNG references and
-processing statuses. PDFs, PNG bytes and standalone chunk results remain
-local files. The notebook displays SQL results as
+Local PostgreSQL stores document metadata, page text, text chunks, their page-context
+links, PNG references and processing statuses. PDFs, PNG bytes and processing JSON
+remain local files. The notebook displays SQL results as
 a pandas DataFrame, a table in Python memory.
 
-OCR, embeddings, SQL storage of text chunks, vector search, answer generation, and AWS integration
+OCR, embeddings, vector search, answer generation, and AWS integration
 are not implemented yet.
+
+## Contents
+
+- [Pipeline](#pipeline)
+- [Setup](#setup)
+- [Local PostgreSQL](#local-postgresql), including [pgAdmin](#view-the-database-with-pgadmin)
+- [Notebook](#notebook)
+- [Run](#run)
+- [Extract raster images](#extract-raster-images)
+- [Preserve complete page context](#preserve-complete-page-context)
+- [Store page contexts](#store-page-contexts)
+- [Store text chunks](#store-text-chunks)
+- [Store document metadata](#store-document-metadata)
+- [Data storage](#data-storage)
+- [Record identifiers](#record-identifiers)
+- [Processing and import status](#processing-and-import-status)
+- [Database schema](#database-schema)
+- [Test](#test)
+- [Development steps](#development-steps)
 
 ## Pipeline
 
@@ -32,8 +51,9 @@ flowchart TD
         C --> E
         D --> E
         B --> F["Embedded raster-image extraction"]
-        B --> G[("PostgreSQL: document and page-context records")]
+        B --> G[("PostgreSQL: documents, page contexts, chunks and links")]
         E --> G
+        D --> G
     end
 
     subgraph planned["Planned — not implemented"]
@@ -85,7 +105,7 @@ change the database's existing password.
 PostgreSQL is accessible only at `127.0.0.1:55432`. To change the port, set
 `POSTGRES_PORT` for both Docker Compose and Python. Compose may also read that
 variable from a root `.env`. The image includes pgvector, an extension for
-storing vectors. `init-schema` explicitly creates document and page-context tables, including
+storing vectors. `init-schema` explicitly creates document, page-context and chunk tables, including
 on an existing volume; repeat execution preserves its rows. It does not migrate
 an existing table with a different definition.
 This local development setup uses a bootstrap database administrator account.
@@ -114,7 +134,7 @@ the PostgreSQL container. If `POSTGRES_PORT` is overridden, use the published
 host port instead of `55432`.
 
 After connecting, refresh the database tree and inspect **Schemas → public →
-Tables**. The two application tables are created by `database init-schema`.
+Tables**. The four application tables are created by `database init-schema`.
 
 ## Notebook
 
@@ -123,7 +143,7 @@ and run the cells in order. It shows live outputs for metadata, download,
 page-level extraction, text chunks, a page preview, PostgreSQL setup and
 connection checks, document metadata import, pandas tables, image extraction
 with a reduced preview, complete-page rendering with associated text,
-page-context SQL import/repeat checks, and the tests.
+page-context and text-chunk SQL import/repeat checks, and the tests.
 Docker must be running for the database cells.
 
 You can also open it in JupyterLab:
@@ -272,10 +292,38 @@ invalid pages are reported while successful pages are retained for retry.
 
 `read_page_contexts()` returns all variants, including failed ones; this is not
 relevance ranking or an automatic choice of evidence. Failed text remains SQL
-`NULL` alongside a usable PNG reference. Chunk IDs/configuration are retained,
-but standalone chunk text is not yet imported into its own SQL table.
+`NULL` alongside a usable PNG reference. Chunk IDs/configuration are retained;
+the next command imports the corresponding chunk text into separate SQL rows.
 Invalid import inputs are reported in logs/results and retained source JSON;
 there is no persistent SQL import-run audit table yet.
+
+## Store text chunks
+
+First complete the [page-context import](#store-page-contexts), including its
+parent-document command. Then use the successful JSON returned by `chunk_text`:
+
+```bash
+.venv/bin/python -u -m store_chunks --chunks path/to/chunk-record.json
+```
+
+The importer rechecks the original PDF and extraction snapshot, recreates the
+recorded word windows and IDs, and requires matching SQL page text, parser and
+chunking configuration. `text_chunks` stores each exact chunk once;
+`page_context_chunks` links it to matching page-context records. Repeating the
+import creates neither duplicate chunks nor duplicate links. A different page
+resolution adds links to its new context without copying the same chunk text.
+
+Each chunk and all its new links are written in one transaction. A failed link
+rolls back that chunk's writes while preserving other successful chunks. Retry
+the same command after correcting the error or importing missing page contexts.
+Existing records are preserved. New document versions or chunking configurations
+produce separate chunk IDs. Source JSON files must remain available for validation.
+
+`read_chunks()` returns all chunk variants for a document version, without
+ranking or configuration selection. `read_chunk_contexts()` follows a chunk to
+its physical page, document version and PNG reference. A valid text chunk may
+link to a context whose image failed; future vision requests must check image
+status and load the actual bytes. No embeddings or model calls occur here.
 
 ## Store document metadata
 
@@ -301,7 +349,7 @@ establish the exact public availability of a version.
 The `downloaded` status describes the download, not successful extraction.
 Parser/chunk configuration is retained in page-context snapshots as well as
 the corresponding JSON results. Import-run tracking, failed-document records
-and standalone text-chunk storage are later steps.
+are later steps.
 See [quality queries](sql/quality.sql) for SQL checks.
 
 ## Data storage
@@ -317,6 +365,10 @@ flowchart LR
     B --> C[("PostgreSQL: page_contexts")]
     D[("document_versions")] -->|"Exact version and PDF hash"| C
     C --> E["Python / pandas DataFrame"]
+    F["Chunk JSON + extraction + PDF"] --> G["Validation in store_chunks.py"]
+    G --> H[("text_chunks + page_context_chunks")]
+    C -->|"Matching page text and configuration"| H
+    H --> E
 ```
 
 PNG bytes remain on disk; an SQL path is a reference, not an image input to a
@@ -330,6 +382,7 @@ walkthrough, SQL excerpts and error-handling details.
 | `page_id` | One physical page: arXiv ID, version, PDF hash and page number |
 | `render_id` | That page together with its rendering configuration |
 | `context_id` | The page-context result: content, configuration, chunk associations, processing statuses and errors |
+| `chunk_id` | One exact page-text window: document version, PDF hash, parser/chunking configuration, physical page, offsets and text |
 
 The following labels are illustrative; actual identifiers are SHA-256 hashes.
 
@@ -339,6 +392,10 @@ The following labels are illustrative; actual identifiers are SHA-256 hashes.
 | Identical repeated import | P1 | R1 | C1 | `unchanged`; no new record |
 | Different resolution | P1 | R2 | C2 | Insert a separate record |
 | Recovery from a text error, with the same rendering configuration | P1 | R1 | C3 | Insert a separate record; retain the failed-text record |
+
+Chunk IDs exclude attempt paths and times. An identical chunk import keeps its
+first row and links. A new resolution creates a context/link, while keeping the
+same chunk row. A different chunking policy creates separate chunk rows.
 
 `page_contexts` stores immutable page-context records. Existing records are never
 overwritten; changed content, configuration, or processing status creates a new
@@ -358,6 +415,7 @@ by a role with the relevant permissions.
 | Page record / `page_contexts.status` | `rendered`, `failed` | Whether rendering and page-record storage succeeded; text can still have failed |
 | `render_pages()` overall status | `rendered`, `partial`, `failed` | Combined page-rendering, record-storage and text-processing outcome |
 | `store_pages()` import status | `stored`, `partial`, `failed` | Database import outcome, independent of the stored processing states |
+| `store_chunks()` import status | `stored`, `partial`, `failed` | Chunk/link import outcome; `linked_count` counts newly inserted links |
 
 **`stored` means the database import succeeded.** The stored record may still
 describe a text or image processing failure. `partial` means that some page
@@ -374,9 +432,10 @@ an invalid page does not discard successfully imported pages.
 | [001_enable_vector.sql](sql/001_enable_vector.sql) | Enable pgvector during initial Docker database creation; no embeddings are generated |
 | [002_document_versions.sql](sql/002_document_versions.sql) | Create one document row per arXiv ID and version |
 | [003_page_contexts.sql](sql/003_page_contexts.sql) | Create page-context records, constraints, indexes and the exact document/version/hash foreign key |
+| [004_text_chunks.sql](sql/004_text_chunks.sql) | Create text chunks and context links; composite foreign keys enforce the same physical page |
 | [quality.sql](sql/quality.sql) | Read-only checks for duplicates, missing source times, processing failures, context variants and orphaned references |
 
-`database init-schema` applies files 002 and 003. File 001 runs on initial Docker
+`database init-schema` applies files 002, 003 and 004. File 001 runs on initial Docker
 volume initialization; `quality.sql` is run explicitly. Table creation preserves
 existing rows but is not a general schema-migration mechanism.
 

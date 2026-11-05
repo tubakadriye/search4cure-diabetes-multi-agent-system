@@ -49,14 +49,14 @@ def open_connection(password_path=PASSWORD_FILE):
 
 
 def initialize_schema(connection=None):
-    """Create document and page-context tables, including on existing Docker volumes."""
+    """Create document, page-context and text-chunk tables on existing or new volumes."""
     if connection is None:
         with open_connection() as owned_connection:
             initialize_schema(owned_connection)
         return
     schema_dir = Path(__file__).resolve().parent / "sql"
     with connection.transaction():
-        for filename in ("002_document_versions.sql", "003_page_contexts.sql"):
+        for filename in ("002_document_versions.sql", "003_page_contexts.sql", "004_text_chunks.sql"):
             connection.execute((schema_dir / filename).read_text(encoding="utf-8"))
 
 
@@ -83,7 +83,7 @@ def main():
                   "Existing PostgreSQL password file kept unchanged.")
         elif args.command == "init-schema":
             initialize_schema()
-            print("Document and page-context tables initialized; existing data kept.")
+            print("Document, page-context and text-chunk tables initialized; existing data kept.")
         else:
             print(json.dumps(check_connection(), indent=2))
     except (OSError, ValueError, RuntimeError, psycopg.Error) as error:

@@ -1,7 +1,33 @@
 # Validation
 
 Scope: arXiv metadata retrieval, versioned PDF download, page-level text
-extraction, traceable text chunks, and the executable walkthrough notebook.
+extraction, traceable text chunks, embedded raster-image extraction, full-page
+rendering, local PostgreSQL setup and storage of document versions, page contexts,
+text chunks and their links, plus the executable walkthrough notebook.
+
+Results are recorded by development stage. Earlier counts and limitations apply
+to that stage; later sections document subsequent changes and checks. For the
+current data model and diagrams, see the [developer guide](DEVELOPER_GUIDE.md#storage-model).
+
+## Contents
+
+- [Offline tests](#offline-tests)
+- [Live source check](#live-source-check)
+- [PDF download tests](#pdf-download-tests)
+- [Live PDF download](#live-pdf-download)
+- [Runtime progress output](#runtime-progress-output)
+- [Project-root entry points](#project-root-entry-points)
+- [Text extraction and notebook](#text-extraction-and-notebook)
+- [Page-local text chunks](#page-local-text-chunks)
+- [Local PostgreSQL setup and notebook connection checks](#local-postgresql-setup-and-notebook-connection-checks)
+- [Store one document version in PostgreSQL](#store-one-document-version-in-postgresql)
+- [SQL-only commit verification](#sql-only-commit-verification)
+- [Referenced raster-image extraction](#referenced-raster-image-extraction)
+- [Embedded-image commit verification](#embedded-image-commit-verification)
+- [Full-page images linked to page text and chunks](#full-page-images-linked-to-page-text-and-chunks)
+- [Independent text and page-image error handling](#independent-text-and-page-image-error-handling)
+- [Page-context storage in PostgreSQL](#page-context-storage-in-postgresql)
+- [Text-chunk storage and page-context links](#text-chunk-storage-and-page-context-links)
 
 ## Offline tests
 
@@ -665,7 +691,7 @@ new immutable context, preserving earlier failures. `read_page_contexts()`
 returns all variants and does not select evidence or rank relevance. A successful
 SQL import means the snapshot was stored, not that its processing succeeded.
 
-Limits: standalone chunk text/vectors have no SQL table yet. Page records retain
+Limits at this stage (chunk storage is added below): standalone chunk text/vectors have no SQL table yet. Page records retain
 chunk IDs and configuration, but embeddings, retrieval, historical availability
 filtering and image-plus-text model requests are unimplemented. Import-validation
 failures are reported in logs/results and retained source JSON, not a persistent
@@ -678,3 +704,85 @@ AWS deployment have not been tested.
 Implementation references:
 [PostgreSQL constraints and foreign keys](https://www.postgresql.org/docs/16/ddl-constraints.html)
 and [Psycopg JSON adaptation](https://www.psycopg.org/psycopg3/docs/basic/adapt.html#json-adaptation).
+
+## Text-chunk storage and page-context links
+
+Validated on November 5, 2026, using the existing local dependencies and database.
+`initialize_schema()` now also applies `004_text_chunks.sql`. It adds
+`text_chunks` and `page_context_chunks` without replacing document/page records.
+Each chunk and all its matching context links share one transaction. The import
+retains first records and supports retry without duplicate chunks or links.
+
+The targeted offline run passed **eight tests** in 0.123 seconds; ten PostgreSQL
+tests were explicitly skipped in that run. With the database enabled, **all 18
+targeted tests passed** in 1.563 seconds. Tests use generated PDFs, explicitly
+synthetic metadata and isolated PostgreSQL schemas with forced rollback.
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -u -m unittest discover -s tests -p test_store_chunks.py -v
+S4C_TEST_POSTGRES=1 PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -u -m unittest discover -s tests -p test_store_chunks.py -v
+.venv/bin/python -u run_notebook.py
+```
+
+The new tests cover exact Unicode text slices; changed PDF/extraction snapshots;
+wrong text, IDs, window positions, sequence, word counts and unsupported policies;
+duplicate IDs; repeated import; new attempt paths; different rendering resolution;
+separate chunking policies and document versions; absent/mismatched page contexts;
+failed-image contexts with valid text; native cross-page foreign-key rejection;
+and a link failure that rolls back its chunk and all preceding links for that
+chunk, followed by a successful retry. Other chunks remain stored.
+
+The complete notebook run passed **all 118 tests in 3.323 seconds**, without skips,
+and executed **15 code cells** without error outputs. A new real arXiv request
+returned `2611.06569v1`, "One Scale, Four Texts: Gaps, Overlaps and Silent Repairs
+in Published Grading Schemes". The versioned PDF contained 18 physical pages;
+extraction produced 74,456 characters and 140 chunks with 100-word windows and
+20-word overlap. All 18 full-page PNGs rendered at 144 DPI. Embedded extraction
+reported `no_images` with zero unsupported or failed occurrences; that does not
+establish the absence of vector figures or tables.
+
+| Observation for this document version | First chunk import | Immediate repeat |
+|---|---:|---:|
+| Newly inserted chunks | 140 | 0 |
+| Unchanged chunks | 0 | 140 |
+| Newly inserted context links | 140 | 0 |
+| Chunk rows after import | 140 | 140 |
+| Context links after import | 140 | 140 |
+| Import failures | 0 | 0 |
+| Duration | 0.409506 s | 0.436360 s |
+
+Before the first call, this version had zero chunk rows and links. Durations use
+`time.perf_counter()` around the importer, including source/PDF verification,
+connection setup and SQL. These are single local observations. The repeat was
+slightly slower; the confirmed improvement is duplicate prevention, not speed.
+No embeddings were computed and no generative model was invoked. Embedding reuse
+and retrieval/answer quality have not been evaluated.
+
+The notebook compared all 140 SQL chunk texts with the current extraction's exact
+page slices and followed an example chunk back to the same document/version,
+physical page and verified PNG fingerprint. Source records from this run:
+
+- Download: `data/arxiv/2611.06569v1/d4d078a3eb424843ab6185a8fb0b0981.json`.
+- Extraction: `data/arxiv/2611.06569v1/extracted/7cd863584d65472ea2bf143c9eb72536.json`.
+- Chunks: `data/arxiv/2611.06569v1/chunks/97dfb8bb3eea46f795ffeec0afbfb59f.json`.
+- Pages: `data/arxiv/2611.06569v1/pages/53727ad2f4334cdca555f270a00b1f8c.json`.
+- PDF SHA-256: `2f790b9f3d12e90e39791bd304ee122de1dcd24ff12fdb992bd6a9759149a698`.
+
+All twelve read-only statements in `sql/quality.sql` were then executed. Duplicate,
+orphan, processing-failure and inconsistent linked-text/configuration checks
+returned zero rows. The application database contained two real document
+versions, 24 contexts, 140 chunks and 140 links. The earlier six-page document
+remained intact; this step did not automatically import its old chunk JSON.
+All 24 stored PNG fingerprints matched the actual files, and all 140 SQL texts
+matched the original chunk JSON. No synthetic documents or test schemas remained.
+The first ad-hoc quality-check invocation split a semicolon inside a SQL comment
+and failed with `EMPTY_QUERY`; removing comment lines from that temporary runner
+allowed the checks to complete. It made no database changes.
+
+Current limits: validation supports the implemented word-window policy and needs
+the original PDF/extraction files. It establishes consistency, not scientific
+correctness or relevance. Reads expose all configurations without selecting a
+policy or ranking evidence. Image-failed contexts can carry valid text; vision
+use must check image readiness and load actual bytes. Embeddings, search,
+historical-availability filtering, model requests, persistent import-run audit,
+backup/restore verification and AWS deployment remain unimplemented or untested.
