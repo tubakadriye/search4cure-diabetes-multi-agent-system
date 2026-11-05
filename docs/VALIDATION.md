@@ -575,3 +575,106 @@ The real `2611.04405v1` download still produced six rendered page records,
 50 linked chunks, zero text failures and zero image failures. Its latest page
 attempt is `data/arxiv/2611.04405v1/pages/14d873fbb3964d1a97b862b3bcf9838a.json`.
 No vision-model behavior or scientific correctness was evaluated in this fix.
+
+## Page-context storage in PostgreSQL
+
+Validated across November 4–5, 2026, with the existing Python,
+PyMuPDF, Psycopg and PostgreSQL dependencies. No new package or cloud resource
+was required. `initialize_schema()` now applies `003_page_contexts.sql` after
+the document table. Existing document data is retained.
+
+`page_contexts` stores page text, PNG references/hashes, chunk IDs, processing
+states, source snapshots and configurations. A composite foreign key references
+the exact `(arxiv_id, version, sha256)` in `document_versions`; its supporting
+unique index is added without changing existing document rows. PNG bytes stay
+on disk. Each page has its own SQL transaction, so a rejected page does not
+roll back other successful pages.
+
+The first implementation passed seven offline tests and nine PostgreSQL tests.
+Its full notebook run passed 98 tests in 2.207 seconds and imported six real
+contexts. A final provenance review identified a missing check: a valid-looking
+chunk ID from the wrong page could be accepted. A new isolated regression test
+reproduced this by storing two rows instead of rejecting the mismatched page.
+The importer now reopens and checks the extraction/chunk snapshots, their hashes,
+exact per-page chunk assignments, page text and parser configuration. A changed
+extraction snapshot is rejected before SQL access.
+
+After that correction, all **18 page-context tests passed** in 0.816 seconds:
+eight offline tests and ten actual PostgreSQL tests. They cover stable semantic
+IDs despite changed attempt paths/times, incorrect page IDs, text/PNG corruption,
+dimension checks, duplicate or incorrectly assigned chunk IDs, incomplete page
+inventories, changed extraction snapshots, missing parent documents, repeat
+imports, new versions, different rendering configurations, preserved failed-text
+snapshots and later recovery, per-page SQL failure and retry, and native SQL
+foreign-key/nullability constraints. Generated PDFs and deliberately simulated
+failures remain explicitly synthetic; SQL test schemas use forced rollback.
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -u -m unittest discover -s tests -p test_store_pages.py -v
+S4C_TEST_POSTGRES=1 PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -u -m unittest discover -s tests -p test_store_pages.py -v
+.venv/bin/python -u run_notebook.py
+.venv/bin/python -m store_pages --help
+```
+
+The final complete notebook run passed **all 100 tests** in 2.007 seconds,
+without skips, and executed **14 code cells** without error outputs. It began
+with a new real arXiv query and download of `2611.04405v1`, extracted six pages
+and 50 chunks, preserved the embedded-image and full-page examples, and read
+the stored page contexts back from SQL. All six page texts, PNG hashes and
+chunk-ID lists were compared with the newly generated source records.
+
+| Import observation | Initial run | Final verification run |
+|---|---:|---:|
+| Context rows before import | 0 | 6 |
+| Newly inserted contexts | 6 | 0 |
+| Unchanged contexts on first call | 0 | 6 |
+| Newly inserted contexts on immediate repeat | 0 | 0 |
+| Unchanged contexts on immediate repeat | 6 | 6 |
+| Context rows after repeat | 6 | 6 |
+| First call duration | 0.144062 s | 0.120724 s |
+| Repeat call duration | 0.128060 s | 0.113442 s |
+| Import failures | 0 | 0 |
+
+Durations use `time.perf_counter()` around `store_pages()`, including source
+verification, PNG checking/decoding, connection setup and SQL. They are single
+local observations, not evidence of a speed improvement. The confirmed behavior
+is duplicate prevention, including a completely new source-processing run with
+different retrieval times and JSON filenames. No embedding reuse or model-call
+reduction is measured here.
+
+The initial executed notebook is preserved locally at
+`data/validation/page-storage-initial.ipynb` (excluded from Git). Its page
+manifest is `data/arxiv/2611.04405v1/pages/b4882112d88447dfa5af1db1c6a4b655.json`.
+The final manifest is
+`data/arxiv/2611.04405v1/pages/fbb88d12a64c452a8a29950060f3d4f4.json`.
+Both reference PDF SHA-256
+`932ec59803c4c1495ebfbb7dd3b58e17afdbbc24e459e5a48f35f48a54bd3075`.
+
+The final read-only checks found six SQL contexts with 37,614 text characters
+and 50 linked chunk IDs. There were zero duplicate context IDs, failed processing
+snapshots, multiple variants, or orphaned/hash-mismatched contexts in this real
+sample. All six referenced PNGs matched their SQL fingerprints. No synthetic
+parent documents or test schemas remained. The synthetic tests separately
+exercise failures and multiple variants; the real sample does not establish
+how frequently these conditions occur.
+
+Context IDs include meaningful content, configuration, chunk associations and
+statuses/errors; attempt paths and timestamps are excluded. Equivalent imports
+keep the first stored snapshot. Recovery or a changed configuration produces a
+new immutable context, preserving earlier failures. `read_page_contexts()`
+returns all variants and does not select evidence or rank relevance. A successful
+SQL import means the snapshot was stored, not that its processing succeeded.
+
+Limits: standalone chunk text/vectors have no SQL table yet. Page records retain
+chunk IDs and configuration, but embeddings, retrieval, historical availability
+filtering and image-plus-text model requests are unimplemented. Import-validation
+failures are reported in logs/results and retained source JSON, not a persistent
+SQL import-run audit table. The source snapshot must remain available to repeat
+validation; immutable rows retain their first asset paths. Asset existence is
+checked during import and this notebook example, not continuously monitored.
+Schema creation is not a general migration/repair mechanism. Backup/restore and
+AWS deployment have not been tested.
+
+Implementation references:
+[PostgreSQL constraints and foreign keys](https://www.postgresql.org/docs/16/ddl-constraints.html)
+and [Psycopg JSON adaptation](https://www.psycopg.org/psycopg3/docs/basic/adapt.html#json-adaptation).

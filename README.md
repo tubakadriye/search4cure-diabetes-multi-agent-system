@@ -5,18 +5,53 @@ by physical PDF page, create traceable text chunks, and extract referenced
 raster images with page provenance.
 
 Complete page PNGs preserve diagrams, captions and surrounding layout together.
-Each physical page has a local JSON record linking its image, extracted text,
-text-chunk IDs and exact document version.
+Each physical page has a JSON record linking its image, extracted text,
+text-chunk IDs and exact document version. Page-context snapshots can also be
+imported into PostgreSQL.
 
 Metadata search and download use the Python standard library. Text and image
 extraction use PyMuPDF. The current environment is tested with Python 3.13.
 
-Local PostgreSQL stores metadata for downloaded document versions. PDFs and
-text/chunk results remain local files. The notebook displays SQL results as
+Local PostgreSQL stores document metadata, page text, PNG references and
+processing statuses. PDFs, PNG bytes and standalone chunk results remain
+local files. The notebook displays SQL results as
 a pandas DataFrame, a table in Python memory.
 
 OCR, embeddings, SQL storage of text chunks, vector search, answer generation, and AWS integration
 are not implemented yet.
+
+## Pipeline
+
+```mermaid
+flowchart TD
+    subgraph implemented["Implemented locally"]
+        A["Live arXiv query"] --> B["Versioned PDF + download metadata"]
+        B --> C["Page-level text extraction"]
+        C --> D["Page-local text chunks"]
+        B --> E["Full-page PNGs + page-context JSON"]
+        C --> E
+        D --> E
+        B --> F["Embedded raster-image extraction"]
+        B --> G[("PostgreSQL: document and page-context records")]
+        E --> G
+    end
+
+    subgraph planned["Planned — not implemented"]
+        H["Text / image embeddings"] --> I["Relevant-page retrieval with pgvector"]
+        Q["Question"] --> I
+        I --> J["Load selected PNG bytes + associated page text"]
+        J --> K["Vision-capable LLM model"]
+        K --> L["Answer with document version + page citations"]
+    end
+
+    G -.-> H
+    G -.->|"Page text and image references"| J
+```
+
+PDFs, PNGs and processing JSON are currently local files; SQL stores their
+metadata and page context. Embedded-image extraction supplements full-page
+rendering. The planned answer path must use actual image bytes and associated
+text; embeddings or filenames alone do not supply visual evidence.
 
 ## Setup
 
@@ -50,7 +85,7 @@ change the database's existing password.
 PostgreSQL is accessible only at `127.0.0.1:55432`. To change the port, set
 `POSTGRES_PORT` for both Docker Compose and Python. Compose may also read that
 variable from a root `.env`. The image includes pgvector, an extension for
-storing vectors. `init-schema` explicitly creates the document table, including
+storing vectors. `init-schema` explicitly creates document and page-context tables, including
 on an existing volume; repeat execution preserves its rows. It does not migrate
 an existing table with a different definition.
 This local development setup uses a bootstrap database administrator account.
@@ -59,13 +94,36 @@ Stop PostgreSQL with `docker compose stop postgres`. Its named volume retains
 the database; the password file must also be kept. Backup and restore have not
 been tested.
 
+### View the database with pgAdmin
+
+For pgAdmin running on the same host as Docker Desktop, register a server with
+these non-secret settings from [compose.yaml](compose.yaml):
+
+| pgAdmin field | Default value |
+|---|---|
+| Host name/address | `127.0.0.1` |
+| Port | `55432` (published host port) |
+| Maintenance database | `search4cure` |
+| Username | `search4cure` |
+| Password file path | `data/postgres/password.txt` |
+
+Read the password privately from that local file when connecting; its value is
+not included in this documentation. Create it with `database init-password`
+before the initial database start, as shown above. Port `5432` is internal to
+the PostgreSQL container. If `POSTGRES_PORT` is overridden, use the published
+host port instead of `55432`.
+
+After connecting, refresh the database tree and inspect **Schemas → public →
+Tables**. The two application tables are created by `database init-schema`.
+
 ## Notebook
 
 Open [walkthrough.ipynb](notebooks/walkthrough.ipynb), select **Search4Cure (.venv)**,
 and run the cells in order. It shows live outputs for metadata, download,
 page-level extraction, text chunks, a page preview, PostgreSQL setup and
 connection checks, document metadata import, pandas tables, image extraction
-with a reduced preview, complete-page rendering with associated text, and the tests.
+with a reduced preview, complete-page rendering with associated text,
+page-context SQL import/repeat checks, and the tests.
 Docker must be running for the database cells.
 
 You can also open it in JupyterLab:
@@ -162,7 +220,8 @@ vector drawings, captions, clipping and page transformations are not reconstruct
 Inline or unresolved images without an extractable object reference are recorded
 as unsupported. This extractor does not fall back to page rendering; complete
 pages are rendered separately below. Images are not yet
-stored in SQL, embedded with CLIP, or interpreted by a model.
+embedded with CLIP or interpreted by a model. Embedded-image occurrence records
+remain local; complete-page PNG references can be imported into SQL below.
 
 ## Preserve complete page context
 
@@ -187,11 +246,36 @@ leaves `text` as `null` and records `text_error`; the PNG can still have
 `image_status: rendered`. The attempt is then `partial` (CLI exit code 1).
 Empty text is a valid empty result, distinct from an extraction error.
 
-Page records remain local JSON. Search and answer generation are later steps:
+The renderer writes local JSON; the next command imports those page contexts
+into SQL. Search and answer generation are later steps:
 retrieve relevant pages, load their actual PNG bytes and associated text into
 a vision-capable LLM model, then cite document version and physical page.
 No model request is made yet; retrieval quality, image resolution and source
 support still need evaluation.
+
+## Store page contexts
+
+After database setup, import the parent document using its download JSON,
+then import the document-level `metadata_path` returned by `render_pages`:
+
+```bash
+.venv/bin/python -m database init-schema
+.venv/bin/python -u -m store_document --metadata path/to/download-record.json
+.venv/bin/python -u -m store_pages --manifest path/to/page-attempt.json
+```
+
+The importer verifies the PDF, page identities, text fingerprints, original
+extraction/chunk snapshots and per-page chunk assignments, plus PNG
+hashes/dimensions. A composite foreign key requires the same document version
+and PDF hash in `document_versions`. Each page is stored in its own transaction;
+invalid pages are reported while successful pages are retained for retry.
+
+`read_page_contexts()` returns all variants, including failed ones; this is not
+relevance ranking or an automatic choice of evidence. Failed text remains SQL
+`NULL` alongside a usable PNG reference. Chunk IDs/configuration are retained,
+but standalone chunk text is not yet imported into its own SQL table.
+Invalid import inputs are reported in logs/results and retained source JSON;
+there is no persistent SQL import-run audit table yet.
 
 ## Store document metadata
 
@@ -215,9 +299,86 @@ retrieval times and the database storage time have different meanings; none
 establish the exact public availability of a version.
 
 The `downloaded` status describes the download, not successful extraction.
-Parser/chunk configuration remains in the corresponding JSON results.
-Import-run tracking, failed-document records and SQL storage of processing
-results are later steps. See [quality queries](sql/quality.sql) for SQL checks.
+Parser/chunk configuration is retained in page-context snapshots as well as
+the corresponding JSON results. Import-run tracking, failed-document records
+and standalone text-chunk storage are later steps.
+See [quality queries](sql/quality.sql) for SQL checks.
+
+## Data storage
+
+Downloaded files and processing JSON remain on disk. Before importing page
+contexts, the Python code checks their PDF/text/PNG fingerprints and source-page
+assignments. PostgreSQL stores document metadata, page text, image references
+and processing states. A DataFrame displays SQL results in Python memory.
+
+```mermaid
+flowchart LR
+    A["PDF, PNG and JSON files"] --> B["Validation in store_pages.py"]
+    B --> C[("PostgreSQL: page_contexts")]
+    D[("document_versions")] -->|"Exact version and PDF hash"| C
+    C --> E["Python / pandas DataFrame"]
+```
+
+PNG bytes remain on disk; an SQL path is a reference, not an image input to a
+model. See the [developer guide](docs/DEVELOPER_GUIDE.md) for the function-by-function
+walkthrough, SQL excerpts and error-handling details.
+
+## Record identifiers
+
+| Identifier | Identifies |
+|---|---|
+| `page_id` | One physical page: arXiv ID, version, PDF hash and page number |
+| `render_id` | That page together with its rendering configuration |
+| `context_id` | The page-context result: content, configuration, chunk associations, processing statuses and errors |
+
+The following labels are illustrative; actual identifiers are SHA-256 hashes.
+
+| Operation | Page | Rendering | Context | Import result |
+|---|---|---|---|---|
+| First import | P1 | R1 | C1 | Insert a record |
+| Identical repeated import | P1 | R1 | C1 | `unchanged`; no new record |
+| Different resolution | P1 | R2 | C2 | Insert a separate record |
+| Recovery from a text error, with the same rendering configuration | P1 | R1 | C3 | Insert a separate record; retain the failed-text record |
+
+`page_contexts` stores immutable page-context records. Existing records are never
+overwritten; changed content, configuration, or processing status creates a new
+record. Attempt paths and timestamps do not affect `context_id`; equivalent
+imports retain the first record's paths and times.
+
+**The importer preserves existing records.** "Immutable" describes that import
+behavior. The database schema does not prevent every direct update or deletion
+by a role with the relevant permissions.
+
+## Processing and import status
+
+| Field / result | Values | Meaning |
+|---|---|---|
+| `text_status` | `extracted`, `empty`, `failed` | Outcome of text extraction; a failure leaves text unknown (`NULL`) |
+| `image_status` | `rendered`, `failed` | Outcome of rendering/saving the page image |
+| Page record / `page_contexts.status` | `rendered`, `failed` | Whether rendering and page-record storage succeeded; text can still have failed |
+| `render_pages()` overall status | `rendered`, `partial`, `failed` | Combined page-rendering, record-storage and text-processing outcome |
+| `store_pages()` import status | `stored`, `partial`, `failed` | Database import outcome, independent of the stored processing states |
+
+**`stored` means the database import succeeded.** The stored record may still
+describe a text or image processing failure. `partial` means that some page
+imports failed while others were inserted or already present.
+
+Text extraction and rendering have independent error handlers. A text exception
+does not prevent saving a usable PNG. SQL writes are transactional per page, so
+an invalid page does not discard successfully imported pages.
+
+## Database schema
+
+| SQL file | Purpose |
+|---|---|
+| [001_enable_vector.sql](sql/001_enable_vector.sql) | Enable pgvector during initial Docker database creation; no embeddings are generated |
+| [002_document_versions.sql](sql/002_document_versions.sql) | Create one document row per arXiv ID and version |
+| [003_page_contexts.sql](sql/003_page_contexts.sql) | Create page-context records, constraints, indexes and the exact document/version/hash foreign key |
+| [quality.sql](sql/quality.sql) | Read-only checks for duplicates, missing source times, processing failures, context variants and orphaned references |
+
+`database init-schema` applies files 002 and 003. File 001 runs on initial Docker
+volume initialization; `quality.sql` is run explicitly. Table creation preserves
+existing rows but is not a general schema-migration mechanism.
 
 ## Test
 
