@@ -14,6 +14,7 @@ kept separately in [VALIDATION.md](VALIDATION.md).
 - [Import functions in store_pages.py](#import-functions-in-store_pagespy)
 - [Text chunks and their page-context links](#store_chunkspy-text-windows-and-their-page-context-links)
 - [SQL schema and constraints](#sql-schema-and-constraints)
+- [Embedding model review](#embedding-model-review)
 - [Verification and current limits](#verification-and-current-limits)
 
 ## Storage model
@@ -399,6 +400,16 @@ inconsistent linked text/configuration and per-policy inventories. SQL
 `substring` starts at character 1, so a Python offset `start_char` becomes
 `start_char + 1`. Overlapping windows intentionally count some words more than
 once; their summed word counts are not a unique-document word count.
+
+## Embedding model review
+
+See [MODEL_REVIEW.md](MODEL_REVIEW.md) for the pinned legacy source, actual model
+call paths, official configuration metadata, input-limit and image-crop concerns,
+and the boundary for the next implementation step. The current SQL schema stores
+no embedding vectors. The independent inspection in notebook section 14 performs
+no inference. The subsequent [local text-model comparison](EMBEDDING_COMPARISON.md)
+in section 15 computes and validates actual MiniLM/BGE vectors, with results in
+local JSON. It includes no SQL vector writes or confirmed relevance evaluation.
 
 ## Verification and current limits
 

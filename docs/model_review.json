@@ -1,0 +1,338 @@
+{
+  "retrieved_at": "2026-11-10T14:26:37.404805+00:00",
+  "models": [
+    {
+      "model_id": "sentence-transformers/all-MiniLM-L6-v2",
+      "revision": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
+      "files": {
+        "sentence_bert_config.json": {
+          "url": "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/1110a243fdf4706b3f48f1d95db1a4f5529b4d41/sentence_bert_config.json",
+          "sha256": "fc1993fde0a95c24ec6c022539d41cf6e2f7c9721e5415d6fb6897472a9cd4b7",
+          "configuration": {
+            "max_seq_length": 256,
+            "do_lower_case": false
+          }
+        },
+        "config.json": {
+          "url": "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/1110a243fdf4706b3f48f1d95db1a4f5529b4d41/config.json",
+          "sha256": "953f9c0d463486b10a6871cc2fd59f223b2c70184f49815e7efbcab5d8908b41",
+          "configuration": {
+            "_name_or_path": "nreimers/MiniLM-L6-H384-uncased",
+            "architectures": [
+              "BertModel"
+            ],
+            "attention_probs_dropout_prob": 0.1,
+            "gradient_checkpointing": false,
+            "hidden_act": "gelu",
+            "hidden_dropout_prob": 0.1,
+            "hidden_size": 384,
+            "initializer_range": 0.02,
+            "intermediate_size": 1536,
+            "layer_norm_eps": 1e-12,
+            "max_position_embeddings": 512,
+            "model_type": "bert",
+            "num_attention_heads": 12,
+            "num_hidden_layers": 6,
+            "pad_token_id": 0,
+            "position_embedding_type": "absolute",
+            "transformers_version": "4.8.2",
+            "type_vocab_size": 2,
+            "use_cache": true,
+            "vocab_size": 30522
+          }
+        },
+        "modules.json": {
+          "url": "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/1110a243fdf4706b3f48f1d95db1a4f5529b4d41/modules.json",
+          "sha256": "84e40c8e006c9b1d6c122e02cba9b02458120b5fb0c87b746c41e0207cf642cf",
+          "configuration": [
+            {
+              "idx": 0,
+              "name": "0",
+              "path": "",
+              "type": "sentence_transformers.models.Transformer"
+            },
+            {
+              "idx": 1,
+              "name": "1",
+              "path": "1_Pooling",
+              "type": "sentence_transformers.models.Pooling"
+            },
+            {
+              "idx": 2,
+              "name": "2",
+              "path": "2_Normalize",
+              "type": "sentence_transformers.models.Normalize"
+            }
+          ]
+        },
+        "1_Pooling/config.json": {
+          "url": "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/1110a243fdf4706b3f48f1d95db1a4f5529b4d41/1_Pooling/config.json",
+          "sha256": "4be450dde3b0273bb9787637cfbd28fe04a7ba6ab9d36ac48e92b11e350ffc23",
+          "configuration": {
+            "word_embedding_dimension": 384,
+            "pooling_mode_cls_token": false,
+            "pooling_mode_mean_tokens": true,
+            "pooling_mode_max_tokens": false,
+            "pooling_mode_mean_sqrt_len_tokens": false
+          }
+        },
+        "tokenizer_config.json": {
+          "url": "https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2/resolve/1110a243fdf4706b3f48f1d95db1a4f5529b4d41/tokenizer_config.json",
+          "sha256": "acb92769e8195aabd29b7b2137a9e6d6e25c476a4f15aa4355c233426c61576b",
+          "configuration": {
+            "do_lower_case": true,
+            "unk_token": "[UNK]",
+            "sep_token": "[SEP]",
+            "pad_token": "[PAD]",
+            "cls_token": "[CLS]",
+            "mask_token": "[MASK]",
+            "tokenize_chinese_chars": true,
+            "strip_accents": null,
+            "name_or_path": "nreimers/MiniLM-L6-H384-uncased",
+            "do_basic_tokenize": true,
+            "never_split": null,
+            "tokenizer_class": "BertTokenizer",
+            "model_max_length": 512
+          }
+        }
+      }
+    },
+    {
+      "model_id": "sentence-transformers/clip-ViT-B-32",
+      "revision": "327ab6726d33c0e22f920c83f2ff9e4bd38ca37f",
+      "files": {
+        "modules.json": {
+          "url": "https://huggingface.co/sentence-transformers/clip-ViT-B-32/resolve/327ab6726d33c0e22f920c83f2ff9e4bd38ca37f/modules.json",
+          "sha256": "c05ee467d00d460b77a264597d9af76121e3e87300ae0777f3c8fdb9babaaa79",
+          "configuration": [
+            {
+              "idx": 0,
+              "name": "0",
+              "path": "0_CLIPModel",
+              "type": "sentence_transformers.models.CLIPModel"
+            }
+          ]
+        },
+        "0_CLIPModel/config.json": {
+          "url": "https://huggingface.co/sentence-transformers/clip-ViT-B-32/resolve/327ab6726d33c0e22f920c83f2ff9e4bd38ca37f/0_CLIPModel/config.json",
+          "sha256": "f77ab2f54a03090c5dcac397670c254c39cd7a311611cafb5a79de3b07cd13ff",
+          "configuration": {
+            "_name_or_path": "openai/clip-vit-base-patch32",
+            "architectures": [
+              "CLIPModel"
+            ],
+            "initializer_factor": 1.0,
+            "model_type": "clip",
+            "projection_dim": 512,
+            "text_config": {
+              "_name_or_path": "",
+              "add_cross_attention": false,
+              "architectures": null,
+              "attention_dropout": 0.0,
+              "bad_words_ids": null,
+              "bos_token_id": 0,
+              "chunk_size_feed_forward": 0,
+              "decoder_start_token_id": null,
+              "diversity_penalty": 0.0,
+              "do_sample": false,
+              "dropout": 0.0,
+              "early_stopping": false,
+              "encoder_no_repeat_ngram_size": 0,
+              "eos_token_id": 2,
+              "finetuning_task": null,
+              "forced_bos_token_id": null,
+              "forced_eos_token_id": null,
+              "gradient_checkpointing": false,
+              "hidden_act": "quick_gelu",
+              "hidden_size": 512,
+              "id2label": {
+                "0": "LABEL_0",
+                "1": "LABEL_1"
+              },
+              "initializer_factor": 1.0,
+              "initializer_range": 0.02,
+              "intermediate_size": 2048,
+              "is_decoder": false,
+              "is_encoder_decoder": false,
+              "label2id": {
+                "LABEL_0": 0,
+                "LABEL_1": 1
+              },
+              "layer_norm_eps": 1e-05,
+              "length_penalty": 1.0,
+              "max_length": 20,
+              "max_position_embeddings": 77,
+              "min_length": 0,
+              "model_type": "clip_text_model",
+              "no_repeat_ngram_size": 0,
+              "num_attention_heads": 8,
+              "num_beam_groups": 1,
+              "num_beams": 1,
+              "num_hidden_layers": 12,
+              "num_return_sequences": 1,
+              "output_attentions": false,
+              "output_hidden_states": false,
+              "output_scores": false,
+              "pad_token_id": 1,
+              "prefix": null,
+              "problem_type": null,
+              "pruned_heads": {},
+              "remove_invalid_values": false,
+              "repetition_penalty": 1.0,
+              "return_dict": true,
+              "return_dict_in_generate": false,
+              "sep_token_id": null,
+              "task_specific_params": null,
+              "temperature": 1.0,
+              "tie_encoder_decoder": false,
+              "tie_word_embeddings": true,
+              "tokenizer_class": null,
+              "top_k": 50,
+              "top_p": 1.0,
+              "torchscript": false,
+              "transformers_version": "4.6.0",
+              "use_bfloat16": false,
+              "vocab_size": 49408
+            },
+            "text_config_dict": null,
+            "transformers_version": null,
+            "vision_config": {
+              "_name_or_path": "",
+              "add_cross_attention": false,
+              "architectures": null,
+              "attention_dropout": 0.0,
+              "bad_words_ids": null,
+              "bos_token_id": null,
+              "chunk_size_feed_forward": 0,
+              "decoder_start_token_id": null,
+              "diversity_penalty": 0.0,
+              "do_sample": false,
+              "dropout": 0.0,
+              "early_stopping": false,
+              "encoder_no_repeat_ngram_size": 0,
+              "eos_token_id": null,
+              "finetuning_task": null,
+              "forced_bos_token_id": null,
+              "forced_eos_token_id": null,
+              "gradient_checkpointing": false,
+              "hidden_act": "quick_gelu",
+              "hidden_size": 768,
+              "id2label": {
+                "0": "LABEL_0",
+                "1": "LABEL_1"
+              },
+              "image_size": 224,
+              "initializer_factor": 1.0,
+              "initializer_range": 0.02,
+              "intermediate_size": 3072,
+              "is_decoder": false,
+              "is_encoder_decoder": false,
+              "label2id": {
+                "LABEL_0": 0,
+                "LABEL_1": 1
+              },
+              "layer_norm_eps": 1e-05,
+              "length_penalty": 1.0,
+              "max_length": 20,
+              "min_length": 0,
+              "model_type": "clip_vision_model",
+              "no_repeat_ngram_size": 0,
+              "num_attention_heads": 12,
+              "num_beam_groups": 1,
+              "num_beams": 1,
+              "num_hidden_layers": 12,
+              "num_return_sequences": 1,
+              "output_attentions": false,
+              "output_hidden_states": false,
+              "output_scores": false,
+              "pad_token_id": null,
+              "patch_size": 32,
+              "prefix": null,
+              "problem_type": null,
+              "pruned_heads": {},
+              "remove_invalid_values": false,
+              "repetition_penalty": 1.0,
+              "return_dict": true,
+              "return_dict_in_generate": false,
+              "sep_token_id": null,
+              "task_specific_params": null,
+              "temperature": 1.0,
+              "tie_encoder_decoder": false,
+              "tie_word_embeddings": true,
+              "tokenizer_class": null,
+              "top_k": 50,
+              "top_p": 1.0,
+              "torchscript": false,
+              "transformers_version": "4.6.0",
+              "use_bfloat16": false
+            },
+            "vision_config_dict": null
+          }
+        },
+        "0_CLIPModel/preprocessor_config.json": {
+          "url": "https://huggingface.co/sentence-transformers/clip-ViT-B-32/resolve/327ab6726d33c0e22f920c83f2ff9e4bd38ca37f/0_CLIPModel/preprocessor_config.json",
+          "sha256": "910e70b3956ac9879ebc90b22fb3bc8a75b6a0677814500101a4c072bd7857bd",
+          "configuration": {
+            "crop_size": 224,
+            "do_center_crop": true,
+            "do_normalize": true,
+            "do_resize": true,
+            "feature_extractor_type": "CLIPFeatureExtractor",
+            "image_mean": [
+              0.48145466,
+              0.4578275,
+              0.40821073
+            ],
+            "image_std": [
+              0.26862954,
+              0.26130258,
+              0.27577711
+            ],
+            "resample": 3,
+            "size": 224
+          }
+        },
+        "0_CLIPModel/tokenizer_config.json": {
+          "url": "https://huggingface.co/sentence-transformers/clip-ViT-B-32/resolve/327ab6726d33c0e22f920c83f2ff9e4bd38ca37f/0_CLIPModel/tokenizer_config.json",
+          "sha256": "3edc310a85caaac28f2bfbd70be572f8b52c1b8661a4f92c25d8810ef29a3224",
+          "configuration": {
+            "errors": "replace",
+            "unk_token": {
+              "content": "<|endoftext|>",
+              "single_word": false,
+              "lstrip": false,
+              "rstrip": false,
+              "normalized": true,
+              "__type": "AddedToken"
+            },
+            "bos_token": {
+              "content": "<|startoftext|>",
+              "single_word": false,
+              "lstrip": false,
+              "rstrip": false,
+              "normalized": true,
+              "__type": "AddedToken"
+            },
+            "eos_token": {
+              "content": "<|endoftext|>",
+              "single_word": false,
+              "lstrip": false,
+              "rstrip": false,
+              "normalized": true,
+              "__type": "AddedToken"
+            },
+            "pad_token": "<|endoftext|>",
+            "add_prefix_space": false,
+            "do_lower_case": true,
+            "name_or_path": "openai/clip-vit-base-patch32",
+            "model_max_length": 77
+          }
+        }
+      }
+    }
+  ],
+  "legacy_commit": "8d183adbfd2793a9f1685c19567c86ddc861b7e6",
+  "feature_commit_before_review": "bbb3511b3687bd09717098ca2622f633f115d050",
+  "kind": "Downloaded official configuration metadata; not model inference or synthetic test data",
+  "model_inference_executed": false
+}

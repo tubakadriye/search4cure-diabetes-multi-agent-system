@@ -17,8 +17,9 @@ links, PNG references and processing statuses. PDFs, PNG bytes and processing JS
 remain local files. The notebook displays SQL results as
 a pandas DataFrame, a table in Python memory.
 
-OCR, embeddings, vector search, answer generation, and AWS integration
-are not implemented yet.
+An optional local comparison computes text embeddings and ranks source pages
+in memory. OCR, persistent vector storage, pgvector-backed search, answer
+generation, and AWS integration are not implemented yet.
 
 ## Contents
 
@@ -36,6 +37,8 @@ are not implemented yet.
 - [Record identifiers](#record-identifiers)
 - [Processing and import status](#processing-and-import-status)
 - [Database schema](#database-schema)
+- [Embedding model review](#embedding-model-review)
+- [Local text-model comparison](#local-text-model-comparison)
 - [Test](#test)
 - [Development steps](#development-steps)
 
@@ -54,10 +57,11 @@ flowchart TD
         B --> G[("PostgreSQL: documents, page contexts, chunks and links")]
         E --> G
         D --> G
+        D --> M["Optional CPU text-model comparison: local vectors + page rankings"]
     end
 
     subgraph planned["Planned — not implemented"]
-        H["Text / image embeddings"] --> I["Relevant-page retrieval with pgvector"]
+        H["Persistent text / image vector import"] --> I["Relevant-page retrieval with pgvector"]
         Q["Question"] --> I
         I --> J["Load selected PNG bytes + associated page text"]
         J --> K["Vision-capable LLM model"]
@@ -439,6 +443,50 @@ an invalid page does not discard successfully imported pages.
 volume initialization; `quality.sql` is run explicitly. Table creation preserves
 existing rows but is not a general schema-migration mechanism.
 
+## Embedding model review
+
+The [model review](docs/MODEL_REVIEW.md) identifies the original MiniLM and CLIP
+models, their configured dimensions and input limits, and legacy search-routing
+issues. The notebook includes an independent inspection example using saved
+official metadata and synthetic encoder stand-ins. It does not load models or
+compute embeddings. This section can be run independently; its saved review
+output has a separate execution history from the earlier pipeline cells.
+That inspection predates the actual MiniLM/BGE CPU comparison below. Retrieval
+quality still needs confirmed relevance labels and a separate evaluation.
+
+See [alternative model candidates](docs/MODEL_CANDIDATES.md) for the researched
+text, biomedical-figure and complete-page retrieval options. The operational
+MiniLM/BGE trial does not establish a relevance winner; no replacement is selected.
+
+## Local text-model comparison
+
+Install the optional pinned CPU runtime into the project environment:
+
+```bash
+.venv/bin/python -m pip install -r requirements-embeddings.txt
+```
+
+Use successful chunk JSON from the earlier pipeline. Repeat `--chunks` to include
+another document. A run compares both models on the same validated input:
+
+```bash
+.venv/bin/python -u -m embedding_comparison --chunks path/to/chunk-record.json
+```
+
+The first run downloads pinned public model snapshots to `data/models/hub`.
+Add `--offline` for a repeat using cached weights. Notebook section 15 exposes
+the same comparison, including token counts, rejected inputs, example vectors,
+timings and ranked source pages. Its default offline setting requires the first
+download to be complete. The saved comparison has its own execution history.
+
+Over-limit inputs are recorded and rejected before encoding. A `partial` result
+exits with code 1 even if both models loaded successfully; inspect its rejections
+and errors. Results, vectors and runtime configuration are saved as new JSON files
+in `data/embedding_comparison/runs`. There are no SQL vector writes or embedding
+reuse. Development questions are provisional; held-out questions are excluded by
+default. Similarity is not accuracy or evidence that a source supports an answer.
+See the [comparison guide](docs/EMBEDDING_COMPARISON.md).
+
 ## Test
 
 ```bash
@@ -446,7 +494,7 @@ existing rows but is not a general schema-migration mechanism.
 ```
 
 By default, tests use simulated API responses and generated PDFs; the
-tests requiring PostgreSQL are skipped. With local PostgreSQL running, include
+tests requiring PostgreSQL or actual model weights are skipped. With local PostgreSQL running, include
 actual connection, authentication and document-storage checks:
 
 ```bash
@@ -454,6 +502,13 @@ S4C_TEST_POSTGRES=1 .venv/bin/python -m unittest discover -s tests -p 'test_*.py
 ```
 
 The notebook runs this complete suite after starting PostgreSQL.
+After installing the optional runtime and caching both models, include their
+offline checks as well:
+
+```bash
+S4C_TEST_POSTGRES=1 S4C_TEST_EMBEDDINGS=1 HF_HUB_OFFLINE=1 .venv/bin/python -m unittest discover -s tests -p 'test_*.py' -v
+```
+
 See [validation results](docs/VALIDATION.md) for the recorded checks.
 
 ## Development steps

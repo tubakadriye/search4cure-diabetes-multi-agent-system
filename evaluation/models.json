@@ -1,0 +1,18 @@
+[
+  {
+    "name": "minilm",
+    "model_id": "sentence-transformers/all-MiniLM-L6-v2",
+    "revision": "1110a243fdf4706b3f48f1d95db1a4f5529b4d41",
+    "dimension": 384,
+    "max_seq_length": 256,
+    "query_prefix": ""
+  },
+  {
+    "name": "bge-small",
+    "model_id": "BAAI/bge-small-en-v1.5",
+    "revision": "5c38ec7c405ec4b44b94cc5a9bb96e735b38267a",
+    "dimension": 384,
+    "max_seq_length": 512,
+    "query_prefix": "Represent this sentence for searching relevant passages: "
+  }
+]

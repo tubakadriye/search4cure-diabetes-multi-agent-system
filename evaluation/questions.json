@@ -1,0 +1,11 @@
+{
+  "description": "Proposed inspection questions. Relevance labels are unreviewed; no quality metric is authorized by these records.",
+  "questions": [
+    {"id": "dev-grading", "split": "development", "question": "Which differences between published diabetic retinopathy grading schemes are discussed?", "label_status": "unreviewed", "relevant_pages": []},
+    {"id": "dev-imbalance", "split": "development", "question": "How does DR-LiteNet address imbalanced diabetic retinopathy grades?", "label_status": "unreviewed", "relevant_pages": []},
+    {"id": "dev-explainability", "split": "development", "question": "Where do the papers discuss explainability or model interpretation?", "label_status": "unreviewed", "relevant_pages": []},
+    {"id": "dev-outside-evidence", "split": "development", "question": "Which clinical trial proves that this system cures type 1 diabetes?", "label_status": "unreviewed", "relevant_pages": []},
+    {"id": "heldout-validation", "split": "heldout", "question": "Which limitations of the reported validation are acknowledged?", "label_status": "unreviewed", "relevant_pages": []},
+    {"id": "heldout-boundaries", "split": "heldout", "question": "How do the texts handle boundaries between adjacent retinopathy grades?", "label_status": "unreviewed", "relevant_pages": []}
+  ]
+}

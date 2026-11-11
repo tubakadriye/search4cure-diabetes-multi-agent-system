@@ -3,7 +3,9 @@
 Scope: arXiv metadata retrieval, versioned PDF download, page-level text
 extraction, traceable text chunks, embedded raster-image extraction, full-page
 rendering, local PostgreSQL setup and storage of document versions, page contexts,
-text chunks and their links, plus the executable walkthrough notebook.
+text chunks and their links, the executable walkthrough notebook, and inspection
+of the legacy embedding models and official configuration metadata, plus local
+CPU text-embedding comparisons.
 
 Results are recorded by development stage. Earlier counts and limitations apply
 to that stage; later sections document subsequent changes and checks. For the
@@ -28,6 +30,8 @@ current data model and diagrams, see the [developer guide](DEVELOPER_GUIDE.md#st
 - [Independent text and page-image error handling](#independent-text-and-page-image-error-handling)
 - [Page-context storage in PostgreSQL](#page-context-storage-in-postgresql)
 - [Text-chunk storage and page-context links](#text-chunk-storage-and-page-context-links)
+- [Embedding model inspection](#embedding-model-inspection)
+- [Local MiniLM and BGE comparison](#local-minilm-and-bge-comparison)
 
 ## Offline tests
 
@@ -786,3 +790,207 @@ policy or ranking evidence. Image-failed contexts can carry valid text; vision
 use must check image readiness and load actual bytes. Embeddings, search,
 historical-availability filtering, model requests, persistent import-run audit,
 backup/restore verification and AWS deployment remain unimplemented or untested.
+
+## Embedding model inspection
+
+Reviewed on November 10, 2026, before implementing embeddings. The pinned legacy
+backend commit is `8d183adbfd2793a9f1685c19567c86ddc861b7e6`; the feature baseline
+is `bbb3511b3687bd09717098ca2622f633f115d050`. This review did not switch branches,
+run the complete Google application, access MongoDB or change the SQL schema.
+
+Nine small official configuration files were downloaded from the Sentence
+Transformers models on Hugging Face with HTTPS verification and a 30-second
+request timeout. Their model revisions, response fingerprints, configuration
+values and retrieval timestamp are retained in [model_review.json](model_review.json).
+The first sandboxed fetch failed DNS resolution; the approved network retry
+succeeded. No model weights or additional dependencies were downloaded.
+
+| Configuration finding | MiniLM | CLIP |
+|---|---|---|
+| Model | `sentence-transformers/all-MiniLM-L6-v2` | `sentence-transformers/clip-ViT-B-32` |
+| Inspected revision | `1110a243fdf4706b3f48f1d95db1a4f5529b4d41` | `327ab6726d33c0e22f920c83f2ff9e4bd38ca37f` |
+| Configured output dimension | 384 | 512 for text and image |
+| Configured text sequence limit | 256 tokens | 77 tokens |
+| Image preprocessing | Not applicable | Resize and center crop to 224 × 224 pixels |
+
+These are configuration/documentation findings, not measured inference shapes.
+The configured dimensions agree with the legacy MongoDB index definitions.
+The wrappers use whole-page text without token guards, and instantiate models
+at import time. The local project environment has none of `sentence-transformers`,
+`transformers`, `torch`, `tokenizers`, `huggingface-hub` or `Pillow` installed.
+
+The independent notebook review cell reads the pinned source through Git and
+uses explicitly synthetic encoder stand-ins plus an empty fake collection to
+execute only `vector_search()`. Four routing probes confirmed:
+
+- SBERT text queries select `sbert_text_embedding`.
+- CLIP text queries select `clip_text_embedding`, including the legacy tool's
+  purported text-to-image path; that path does not target page-image vectors.
+- CLIP image queries select `clip_image_embedding`.
+- Optional Voyage mode calls SBERT while selecting `voyage_embedding`.
+
+These observations reproduce routing, not real search results or model behavior.
+No legacy fix was applied in this inspection. The standalone/uploaded image
+field `clip_embedding` is another statically observed mismatch with the shown
+page-image index. Findings and proposed boundaries are in [MODEL_REVIEW.md](MODEL_REVIEW.md).
+
+The first notebook-cell execution failed because the inspection attempted to
+literal-evaluate an index dictionary containing a variable index name. Reading
+only its constant field-definition subtree corrected the inspection. The final
+cell ran successfully in a fresh Jupyter kernel, with its actual output saved.
+The same cell source also executed from both the project root and `notebooks/`
+with exit code 0. It performs no model inference, network or SQL operations.
+
+The existing notebook setup regression test passed: **one test in 0.760 seconds**,
+covering both starting directories:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 .venv/bin/python -u -m unittest discover -s tests -p test_walkthrough.py -v
+```
+
+The notebook now contains 16 code cells. Only the independent review cell was
+executed in Jupyter for this inspection; earlier pipeline/test outputs retain
+their previous execution history. The full 118-test PostgreSQL suite and real
+arXiv pipeline were not rerun in this documentation/inspection step. Their
+previous results remain recorded above.
+
+Unverified: actual model loading/output shapes, current chunk/query token counts,
+image preprocessing behavior in a selected runtime, retrieval/answer quality,
+old-vector compatibility and the future dependency lock. Model/library versions
+in the original runtime are unknown. No truncation frequency, search accuracy,
+embedding reuse or speed improvement is claimed. The next feature must verify
+token limits before encoding and record model/configuration provenance.
+
+## Local MiniLM and BGE comparison
+
+Validated on November 11, 2026 (Europe/Zurich). JSON run timestamps use UTC;
+the first CLI run began at `2026-11-10T23:23:42.967260+00:00`. This is an actual
+local CPU trial, distinct from the preceding configuration inspection. It does
+not establish a relevance winner or a historical Google-version comparison.
+
+Dependency preflight used official PyPI metadata and a binary-only dry run,
+constraining all 97 existing installed distributions to their current versions.
+The optional runtime was then installed; all 97 versions were confirmed unchanged.
+The model dependency closure is pinned in `requirements-embeddings.txt`.
+`pip check` reported no broken requirements. The model stack is:
+
+| Package | Tested version |
+|---|---|
+| Sentence Transformers | 6.2.0 |
+| Transformers | 5.22.2 |
+| PyTorch | 2.15.0 |
+| Tokenizers | 0.23.3 |
+| NumPy | 2.5.4 |
+
+The actual host is Python 3.13.12, macOS ARM64, 16 GiB physical memory. Inference
+used CPU, two PyTorch threads, float32 output, normalization and batch size 16.
+Peak memory, other platforms, Apple GPU execution and AWS were not tested.
+
+`evaluation/models.json` pins MiniLM revision
+`1110a243fdf4706b3f48f1d95db1a4f5529b4d41` and BGE-small revision
+`5c38ec7c405ec4b44b94cc5a9bb96e735b38267a`. Public safetensors weights were fetched
+into `data/models/hub` without authentication or remote repository code execution.
+No source text was sent for remote inference. BGE's query instruction is recorded;
+no document prefix or implicit additional prompt was used.
+
+The frozen real corpus has 190 chunks across 24 physical pages: 50 chunks from
+`2611.04405v1` and 140 from `2611.06569v1`. The existing downloaded PDFs,
+extractions and chunk snapshots were validated before each run; there was no
+new arXiv request in this comparison. Corpus fingerprint:
+`1cbc3a97e23fd6b793f2630dda39bc2dc54a315d3db3fb812423d183ac4c3350`.
+
+Sources supplied to the recorded command:
+
+```bash
+.venv/bin/python -u -m embedding_comparison \
+  --chunks data/arxiv/2611.04405v1/chunks/717879fe88ef482894cff9654ba8fb83.json \
+  --chunks data/arxiv/2611.06569v1/chunks/97dfb8bb3eea46f795ffeec0afbfb59f.json
+```
+
+Four development questions were encoded. Two held-out questions were not run.
+All proposed relevance labels remain unreviewed; no Hit@5, reciprocal-rank,
+answer-support, abstention-accuracy or other quality result was calculated.
+
+| Observation | MiniLM | BGE-small |
+|---|---:|---:|
+| Input chunks | 190 | 190 |
+| Document token range, including special tokens | 30–355 | 30–355 |
+| Configured sequence limit | 256 | 512 |
+| Accepted document vectors | 180 | 190 |
+| Rejected chunks | 10 | 0 |
+| Accepted question vectors | 4 | 4 |
+| Question token range, including instruction where applicable | 13–21 | 21–29 |
+| Verified dimension | 384 | 384 |
+| Encode API calls: corpus + questions | 2 | 2 |
+| First CLI document encode duration | 1.953023 s | 3.866857 s |
+| Independent offline notebook document encode duration | 1.837306 s | 4.023386 s |
+| Independent offline notebook question encode duration | 0.008806 s | 0.021232 s |
+
+MiniLM rejected two chunks from `2611.04405v1` and eight from `2611.06569v1`;
+lengths were 257–355 tokens. None was silently truncated. Both models loaded
+successfully. The run status is `partial` and the CLI exit code is 1 because
+rejected inputs remain explicit. This is an observed coverage difference, not
+proof of better relevance. Accepted subsets differ, so these timings are not
+an equal-workload speed comparison; there was no controlled warm-up.
+
+Load time included initial library startup and model/cache access. It was
+12.963227 s / 6.258615 s in the first CLI run and 5.281665 s / 0.078299 s in the
+offline notebook run (MiniLM / BGE). These are not model-only latency estimates.
+Embeddings were recomputed in both runs; model-weight caching is distinct from
+persistent per-chunk embedding reuse, which is not implemented.
+
+Every returned vector was checked for row count, 384 finite numeric values and
+squared norm within `1e-4` of 1. The two runs had matching corpus, questions,
+configuration IDs, token counts and rejected IDs. Comparing all serialized document
+and question vector values gave a maximum difference of **0.0** for each model
+on this host. This does not guarantee identical results across platforms/runtimes.
+
+Each question's results contain up to five unique source pages, keeping the
+best matching chunk per page. Every returned ID/text/document version/PDF hash/
+page/offset/title/URL was checked against the validated corpus. These associations
+do not prove relevance or support for a claim. The question with a cure premise
+also returned nearest pages: no answer or evidence-based abstention was generated.
+Similarity values from the two models are not calibrated to each other.
+
+The reports are retained locally, excluded from Git:
+
+- First CLI run: `data/embedding_comparison/runs/a39579ff55f64facb5ea090777c874f7.json`.
+- Offline notebook run: `data/embedding_comparison/runs/7c55eae7085b4931855680a1c506cbf6.json`.
+- Dependency resolution: `data/embedding_comparison/dependency-resolution.json`.
+- Full test output: `data/embedding_comparison/full-tests-2026-11-11.txt`.
+
+The first safeguard-only run passed 12 tests in 0.346 seconds with the real-model
+test explicitly skipped. After adding the CLI report test and caching weights,
+all **14 comparison tests passed in 6.394 seconds**, including actual offline CPU
+models applied to explicitly synthetic sentences. Tests cover special-token and
+query-prefix boundaries, rejected-only batches, bad dimensions/values/norms,
+source/page ranking, model failure/retry, revision pinning, source corruption,
+corpus deduplication, question splits and artifact creation. The deprecated
+`get_sentence_embedding_dimension()` call was replaced with the current
+`get_embedding_dimension()` API after its first-run warning.
+
+The complete suite then passed **all 133 tests in 10.716 seconds**, without skips,
+with actual PostgreSQL and cached-model checks enabled. Database fixtures used
+isolated schemas and rollback; no vector table or production vector rows were
+created. PostgreSQL preflight reported the existing four application tables.
+A final notebook path check passed both tests in 1.032 seconds after moving the
+pandas display import below the independent path setup.
+
+```bash
+S4C_TEST_EMBEDDINGS=1 HF_HUB_OFFLINE=1 .venv/bin/python -u -m unittest discover -s tests -p test_embedding_comparison.py -v
+S4C_TEST_POSTGRES=1 S4C_TEST_EMBEDDINGS=1 HF_HUB_OFFLINE=1 .venv/bin/python -u -m unittest discover -s tests -p 'test_*.py' -v
+```
+
+Notebook section 15 executed successfully in a fresh kernel started from
+`notebooks/`, with Hugging Face offline. Its real tables, sample vectors,
+rejections and source checks are saved. The notebook now has 17 code cells;
+earlier sections were not rerun and retain their previous execution history.
+The missing optional progress-widget warning did not prevent execution. Tokenizer
+warnings appeared during oversized-input preflight; those inputs were excluded
+from inference. No manual scientific/relevance review is recorded.
+
+Current limits: confirmed relevance labels, held-out evaluation, a fair quality
+comparison accounting for rejected inputs, token-aware splitting, persistent
+vector storage/reuse, pgvector search, image retrieval, model selection, answer
+support/abstention and cloud execution remain pending. The next decision should
+use reviewed results rather than similarity magnitudes or these isolated timings.
