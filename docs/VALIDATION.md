@@ -32,6 +32,7 @@ current data model and diagrams, see the [developer guide](DEVELOPER_GUIDE.md#st
 - [Text-chunk storage and page-context links](#text-chunk-storage-and-page-context-links)
 - [Embedding model inspection](#embedding-model-inspection)
 - [Local MiniLM and BGE comparison](#local-minilm-and-bge-comparison)
+- [Token-aware MiniLM document inputs](#token-aware-minilm-document-inputs)
 
 ## Offline tests
 
@@ -994,3 +995,111 @@ comparison accounting for rejected inputs, token-aware splitting, persistent
 vector storage/reuse, pgvector search, image retrieval, model selection, answer
 support/abstention and cloud execution remain pending. The next decision should
 use reviewed results rather than similarity magnitudes or these isolated timings.
+
+## Token-aware MiniLM document inputs
+
+Implemented and validated across November 11–12, 2026 (Europe/Zurich), after
+comparison commit `266a260edd415449d769185ad93540989b392017`. This optional step
+keeps the pinned MiniLM model and addresses the observed 10 over-limit parent
+chunks. It makes no model-selection or relevance-quality claim.
+
+`token_inputs.py` creates separate embedding inputs linked to immutable parent
+chunk IDs and exact page/version/PDF-hash/character spans. The policy is
+`source_spans_v1`: prefer word boundaries, recheck actual token counts including
+special tokens, and use checked character prefixes only for a single oversized
+word. Child spans partition each parent without gaps or internal overlap.
+The original overlap between different parent chunks remains. Impossible budgets
+raise errors; queries retain the existing rejection policy.
+
+The baseline CLI behavior remains `--document-policy reject`. The new mode is
+explicit, and `--model minilm` selects only that registered model:
+
+```bash
+.venv/bin/python -u -m embedding_comparison \
+  --model minilm --document-policy split --offline \
+  --chunks data/arxiv/2611.04405v1/chunks/717879fe88ef482894cff9654ba8fb83.json \
+  --chunks data/arxiv/2611.06569v1/chunks/97dfb8bb3eea46f795ffeec0afbfb59f.json
+```
+
+The first actual CLI run completed with exit code 0 and produced
+`data/embedding_comparison/runs/1b9e076fb91547e996987f60318106b5.json`.
+It encoded 200 document inputs and four development questions. No source PDFs,
+original chunk records, model weights or SQL schema were changed.
+
+Notebook section 16 then independently compared both policies using the same
+revalidated 190-chunk, 24-page corpus and four development questions. Its runs
+began at `2026-11-12T00:15:59.000508+00:00` and
+`2026-11-12T00:16:10.346854+00:00`. Corpus fingerprint remains
+`1cbc3a97e23fd6b793f2630dda39bc2dc54a315d3db3fb812423d183ac4c3350`.
+Both runs used the same pinned MiniLM revision, cached weights, CPU/two threads,
+float32 output, normalization and batch size 16.
+
+| Observation | Rejection baseline | Optional splitting |
+|---|---:|---:|
+| Original source chunks | 190 | 190 |
+| Original chunks represented in document vectors | 180 | 190 |
+| Document vectors | 180 | 200 |
+| Rejected document inputs | 10 | 0 |
+| Parents split into two inputs | 0 | 10 |
+| Character-fallback inputs | Not used | 0 |
+| Largest accepted document input | At most 256 tokens | 256 tokens |
+| Accepted question vectors | 4 | 4 |
+| Encode API calls, documents + questions | 2 | 2 |
+| Additional splitting preparation | Not run | 0.209874 s |
+| Document token preflight | 0.040449 s | 0.037071 s |
+| Document encoding | 1.831868 s | 1.797755 s |
+| Question encoding | 0.008858 s | 0.008689 s |
+
+This confirms improved representation of original chunks, with all their literal
+text retained. It does not establish better retrieval. Additional token checks
+and more vectors add work; the isolated timings are not evidence of a speed
+improvement. Load times were 9.251272 s and 0.042578 s, respectively, with initial
+library startup only in the first call. No controlled warm-up or peak-memory
+measurement was performed.
+
+All 190 parents were checked for exact text reconstruction, consecutive absolute
+spans and matching document/version/PDF-hash/page assignments. All 200 accepted
+inputs fit within 256 tokens. Their 384-dimensional vectors passed the existing
+finite-value/unit-norm checks. The earlier CLI and notebook splitting runs had
+identical derived IDs and a maximum serialized document/question vector
+difference of **0.0** on this host. This is a repeat observation, not a guarantee
+across platforms or runtimes.
+
+Notebook reports, excluded from Git:
+
+- Rejection: `data/embedding_comparison/runs/94f5c959d64046588eef4aa812dda1dd.json`.
+- Splitting: `data/embedding_comparison/runs/80d10a5f217f4585a5e9049cdb1f1dcb.json`.
+- Complete test output: `data/embedding_comparison/full-tests-token-inputs.txt`.
+
+The targeted safeguard-only run passed **10 tests in 0.372 seconds**, explicitly
+skipping the cached-model test. With real models enabled, **all 11 new tests
+passed in 6.385 seconds**. Tests cover fitting parents, exact Unicode/whitespace
+coverage, absolute offsets, stable and configuration-sensitive IDs, preservation
+of overlapping parents and distinct pages/versions, single-word fallback,
+impossible budgets, corrupted offsets, query rejection, model selection and
+unknown-name errors. The real offline MiniLM check uses an explicitly synthetic
+oversized sentence; its derived inputs were encoded without truncation.
+
+The full suite subsequently passed **all 144 tests in 11.904 seconds**, without
+skips, including actual PostgreSQL and cached-model checks:
+
+```bash
+S4C_TEST_EMBEDDINGS=1 HF_HUB_OFFLINE=1 .venv/bin/python -u -m unittest discover -s tests -p test_token_inputs.py -v
+S4C_TEST_POSTGRES=1 S4C_TEST_EMBEDDINGS=1 HF_HUB_OFFLINE=1 .venv/bin/python -u -m unittest discover -s tests -p 'test_*.py' -v
+```
+
+Section 16 executed successfully in a fresh Jupyter kernel. Its setup revalidated
+the saved section-15 corpus; earlier pipeline sections were not rerun. The
+notebook now has 18 code cells, with this section's actual output saved separately.
+Tokenizer warnings occur during deliberate over-limit counting, before those
+original inputs are split or rejected. Optional progress-widget warnings did
+not prevent execution.
+
+Limits: the character fallback can cut a word and its real-corpus relevance has
+not been evaluated. Full source-text coverage is distinct from semantic quality,
+scientific support or search accuracy. Original chunks remain the source of
+record; derived embedding inputs are local results, not new `text_chunks` SQL
+rows. Persistent vector storage/reuse, pgvector search, confirmed relevance
+labels, held-out evaluation, image retrieval, evidence-based abstention and AWS
+execution remain pending. Relevance labels remain unreviewed; no source-support
+or retrieval-quality metric was calculated.

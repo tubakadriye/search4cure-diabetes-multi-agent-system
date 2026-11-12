@@ -10,6 +10,7 @@ it does not select a model or measure retrieval quality. See the recorded
 - [Run](#run)
 - [Data flow and functions](#data-flow-and-functions)
 - [Configuration and safeguards](#configuration-and-safeguards)
+- [Optional token-aware document inputs](#optional-token-aware-document-inputs)
 - [Results and limitations](#results-and-limitations)
 - [Tests](#tests)
 
@@ -48,7 +49,8 @@ download. Saved outputs have a separate execution history from earlier sections.
 flowchart TD
     A["Saved arXiv PDF + extraction + chunks"] --> B["Validate and fingerprint corpus"]
     Q["Development questions"] --> C["Model-specific input preparation"]
-    B --> C
+    B --> P["Optional document splitting with parent/source links"]
+    P --> C
     C --> D["Count tokens without truncation"]
     D -->|"Empty or too long"| R["Record rejected ID, count and reason"]
     D -->|"Within limit"| E["Pinned local CPU encoder"]
@@ -68,6 +70,7 @@ flowchart TD
 | `rank_pages()` | Score validated vectors within one model; keep its best chunk per document-version/PDF-hash/page |
 | `compare_models()` | Run models sequentially and retain successful outcomes if another fails |
 | `main()` | Publish a new JSON report through the existing atomic metadata writer |
+| `token_inputs.prepare_documents()` | Create model-sized inputs with stable parent links and exact source character spans |
 
 ## Configuration and safeguards
 
@@ -87,6 +90,45 @@ Each model has a configuration fingerprint, tokenizer serialization fingerprint,
 and recorded runtime. Different models' vectors remain separate even if both
 have 384 dimensions. These records are not an SQL cache.
 
+## Optional token-aware document inputs
+
+The default policy is still rejection. Select a model and enable splitting with:
+
+```bash
+.venv/bin/python -u -m embedding_comparison --chunks path/to/chunk-record.json --model minilm --document-policy split --offline
+```
+
+[`token_inputs.py`](../token_inputs.py) prepares derived embedding inputs rather
+than changing the original word chunks. `split_spans()` first checks the complete
+text. Oversized parents are packed at word boundaries, checking the actual
+tokenizer count for each candidate with special tokens included. A single
+oversized word has a character-prefix fallback: reduce the candidate and recount
+until it fits. This does not assume token counts increase monotonically with
+prefix length or claim to find the largest possible span.
+
+`prepare_documents()` records a separate input ID, `parent_chunk_id`, page,
+document version/PDF hash, parent offsets, and absolute input offsets. IDs include
+the model/tokenizer identity, policy version, budget and exact span/text, excluding
+attempt filenames. They are repeatable for equivalent inputs; changed policy
+identity or spans produce different IDs. Whole fitting parents also get derived
+IDs, keeping source chunk identities separate from model inputs.
+
+The inputs partition each parent exactly: no missing characters and no overlap
+inside a parent. Existing overlap between parent chunks remains. Unicode
+character offsets are zero-based and end-exclusive. The character fallback may
+cut a word; preserving literal text is not a guarantee of semantic chunk quality.
+An impossible budget raises an error rather than discarding a character.
+
+`checked_encode()` rechecks the derived inputs before inference. Queries are
+never split automatically. A long query can still produce `partial` even when
+every parent document chunk is represented.
+
+Notebook section 16 measures rejection versus splitting on the same validated
+corpus, showing represented parent counts separately from vector counts. It
+verifies each parent's full text and source/page/offset assignments. The measured
+coverage improvement and tests are in [VALIDATION.md](VALIDATION.md#token-aware-minilm-document-inputs).
+SQL vector storage and source relevance evaluation remain later steps.
+
 ## Results and limitations
 
 | Report field | Meaning |
@@ -98,6 +140,8 @@ have 384 dimensions. These records are not an SQL cache.
 | `results` | Up to five unique pages per question, with the best chunk and normalized-dot-product similarity |
 | `quality_metrics` | `null`; this trial does not evaluate relevance |
 | `execution_kind` | Real local inference or explicitly injected synthetic test encoders |
+| Model `input_preparation` | Splitting policy, parent/input counts and per-parent derived ID lists; present only for splitting |
+| Model `input_preparation_seconds` | Additional source-span preparation time; standard encoding preflight is timed separately |
 
 `complete` means all inputs succeeded; `partial` includes rejected inputs;
 `failed` indicates a model-operation error. CLI exit code 0 requires an entirely
@@ -106,7 +150,8 @@ input rejection from model failure.
 
 Models receive the same corpus but can accept different subsets. A fair relevance
 comparison must account for this, for example with an explicit common subset or
-a tested token-aware chunking policy. Neither is silently applied here.
+a tested token-aware input policy. Splitting is applied only when requested;
+no common subset is silently selected.
 
 Questions in [`questions.json`](../evaluation/questions.json) have unreviewed
 relevance labels. Held-out questions are excluded by default. No answer is
@@ -138,3 +183,9 @@ The opt-in test uses synthetic sentences with real CPU models to verify finite
 normalized 384-dimensional output and actual oversized-input rejection. Notebook
 path tests cover both starting directories without loading models or pandas
 during initial path setup.
+
+The splitting tests additionally verify exact Unicode/whitespace coverage,
+absolute offsets, preserved parents/pages/versions, stable derived IDs,
+single-word fallback, impossible-budget failures, model selection and continued
+query-length rejection. A real offline MiniLM test encodes the derived inputs
+of a deliberately oversized synthetic parent.

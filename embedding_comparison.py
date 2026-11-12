@@ -16,6 +16,7 @@ import time
 
 from download_pdf import save_metadata
 from store_chunks import validate_chunks
+from token_inputs import POLICY, prepare_documents
 
 
 def fingerprint(value):
@@ -170,9 +171,11 @@ def load_cpu_model(spec, cache, offline, threads):
 
 
 def compare_models(corpus, questions, specs, *, cache="data/models/hub", offline=False,
-                   batch_size=16, threads=2, model_factory=None):
+                   batch_size=16, threads=2, model_factory=None, document_policy="reject"):
     """Keep model spaces and failures separate; report observations without quality metrics."""
     validate_specs(specs)
+    if document_policy not in ("reject", "split"):
+        raise ValueError("Unknown document input policy.")
     if type(threads) is not int or threads < 1 or type(batch_size) is not int or batch_size < 1:
         raise ValueError("Thread and batch counts must be positive integers.")
     runtime = dict(sorted((d.metadata["Name"], d.version) for d in distributions()))
@@ -186,7 +189,8 @@ def compare_models(corpus, questions, specs, *, cache="data/models/hub", offline
         model = None
         configuration = {**spec, "device": "cpu", "precision": "float32", "normalize_embeddings": True,
                          "batch_size": batch_size, "threads": threads, "runtime": runtime,
-                         "oversize_policy": "reject_before_encode", "document_prefix": ""}
+                         "oversize_policy": "reject_before_encode" if document_policy == "reject" else POLICY,
+                         "document_prefix": ""}
         outcome = {"configuration": configuration, "configuration_id": fingerprint(configuration), "name": spec["name"]}
         logging.info("Loading %s at revision %s", spec["name"], spec["revision"])
         try:
@@ -197,8 +201,18 @@ def compare_models(corpus, questions, specs, *, cache="data/models/hub", offline
                 raise ValueError("Loaded model dimensions/sequence limit differ from the pinned configuration.")
             backend = getattr(model.tokenizer, "backend_tokenizer", None)
             outcome["tokenizer_sha256"] = hashlib.sha256(backend.to_str().encode()).hexdigest() if backend else None
-            logging.info("Checking and encoding %s document chunks with %s", len(corpus["chunks"]), spec["name"])
-            documents = checked_encode(model, corpus["chunks"], spec, "document", batch_size)
+            inputs = corpus["chunks"]
+            if document_policy == "split":
+                started = time.perf_counter()
+                preparation = prepare_documents(inputs, model.tokenizer, spec["max_seq_length"], {
+                    "model_id": spec["model_id"], "revision": spec["revision"],
+                    "tokenizer_sha256": outcome["tokenizer_sha256"],
+                })
+                inputs = preparation["items"]
+                outcome["input_preparation_seconds"] = time.perf_counter() - started
+                outcome["input_preparation"] = {key: value for key, value in preparation.items() if key != "items"}
+            logging.info("Checking and encoding %s document inputs with %s", len(inputs), spec["name"])
+            documents = checked_encode(model, inputs, spec, "document", batch_size)
             queries = checked_encode(model, questions, spec, "query", batch_size)
             outcome.update(documents=documents, queries=queries, results=[])
             for question, vector in zip(queries["items"], queries["vectors"]):
@@ -226,6 +240,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--chunks", action="append", required=True, help="Validated chunk JSON; repeat for another document")
     parser.add_argument("--models", default="evaluation/models.json")
+    parser.add_argument("--model", action="append", help="Select a registered model name; repeat to select several")
+    parser.add_argument("--document-policy", choices=("reject", "split"), default="reject")
     parser.add_argument("--questions", default="evaluation/questions.json")
     parser.add_argument("--split", choices=("development", "heldout"), default="development")
     parser.add_argument("--cache", default="data/models/hub")
@@ -233,9 +249,16 @@ def main():
     parser.add_argument("--output-dir", default="data/embedding_comparison/runs")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(message)s")
+    specs = json.loads(Path(args.models).read_text())
+    validate_specs(specs)
+    if args.model:
+        if set(args.model) - {spec["name"] for spec in specs}:
+            parser.error("Unknown model name; inspect the model registry.")
+        specs = [spec for spec in specs if spec["name"] in args.model]
     corpus = load_corpus(args.chunks)
     questions = load_questions(args.questions, args.split)
-    result = compare_models(corpus, questions, json.loads(Path(args.models).read_text()), cache=args.cache, offline=args.offline)
+    result = compare_models(corpus, questions, specs, cache=args.cache, offline=args.offline,
+                            document_policy=args.document_policy)
     output = Path(args.output_dir)
     output.mkdir(parents=True, exist_ok=True)
     path = save_metadata(output, result)

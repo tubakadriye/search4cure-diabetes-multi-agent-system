@@ -411,6 +411,12 @@ no inference. The subsequent [local text-model comparison](EMBEDDING_COMPARISON.
 in section 15 computes and validates actual MiniLM/BGE vectors, with results in
 local JSON. It includes no SQL vector writes or confirmed relevance evaluation.
 
+Notebook section 16 uses optional source-preserving MiniLM inputs from
+[`token_inputs.py`](../token_inputs.py). Original SQL chunk IDs remain the parent
+references; derived IDs identify exact model-sized source spans. See the
+[input policy](EMBEDDING_COMPARISON.md#optional-token-aware-document-inputs) and
+[measured coverage checks](VALIDATION.md#token-aware-minilm-document-inputs).
+
 ## Verification and current limits
 
 See [test_store_chunks.py](../tests/test_store_chunks.py),

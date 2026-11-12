@@ -487,6 +487,18 @@ reuse. Development questions are provisional; held-out questions are excluded by
 default. Similarity is not accuracy or evidence that a source supports an answer.
 See the [comparison guide](docs/EMBEDDING_COMPARISON.md).
 
+To keep MiniLM and split oversized document inputs while preserving their parent
+chunks and source offsets, use the optional mode:
+
+```bash
+.venv/bin/python -u -m embedding_comparison --chunks path/to/chunk-record.json --model minilm --document-policy split --offline
+```
+
+Notebook section 16 compares rejection and splitting on the same corpus. Derived
+embedding inputs have separate IDs linked to the original chunk; the SQL source
+records remain the reference. Questions still undergo the original length check.
+The default comparison policy remains `reject` for reproducible baseline runs.
+
 ## Test
 
 ```bash
