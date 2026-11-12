@@ -1,5 +1,9 @@
 # Search4Cure.AI
 
+Search4Cure.AI is being developed as an illness-specific research workspace,
+starting with diabetes, for exploring scientific literature and unresolved
+research questions. Papers and traceable evidence are at its center.
+
 Search arXiv for one publication, download its exact PDF version, extract text
 by physical PDF page, create traceable text chunks, and extract referenced
 raster images with page provenance.
@@ -23,6 +27,7 @@ generation, and AWS integration are not implemented yet.
 
 ## Contents
 
+- [Research workspace direction](#research-workspace-direction)
 - [Pipeline](#pipeline)
 - [Setup](#setup)
 - [Local PostgreSQL](#local-postgresql), including [pgAdmin](#view-the-database-with-pgadmin)
@@ -41,6 +46,22 @@ generation, and AWS integration are not implemented yet.
 - [Local text-model comparison](#local-text-model-comparison)
 - [Test](#test)
 - [Development steps](#development-steps)
+
+## Research workspace direction
+
+Planned views include a searchable paper library, source-linked method comparison
+tables, a research timeline, literature-analysis dashboards, a citation graph
+and an optional grounded assistant. Dashboards should show how reported methods
+and study coverage change over time. Suggested research directions will be
+clearly labeled hypotheses with supporting sources, uncertainty and review state.
+They will share access to exact paper versions, passages and full-page images.
+These workspace views are not implemented yet; the current code provides their
+data/provenance and local embedding foundation. See the
+[research workspace roadmap](docs/RESEARCH_WORKSPACE.md) for scope, evidence rules
+and implementation order. Coverage will describe collected literature rather
+than claim a complete history of an illness's research. The scope must distinguish
+disease subtypes and study settings; cancer is a possible later research area.
+Research suggestions are not verified discoveries or treatment recommendations.
 
 ## Pipeline
 
